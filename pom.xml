@@ -30,9 +30,10 @@
     </licenses>
 
     <!-- ================================================================
-         Global build properties
+         Dependency versions
          ================================================================ -->
     <properties>
+        <micrometer.version>1.16.3</micrometer.version>
         <!-- Java baseline: must match Phoebus -->
         <java.version>17</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
@@ -42,5 +43,23 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
+
+    <!-- ================================================================
+         Dependencies
+         ================================================================ -->
+    <dependencies>
+
+        <!--
+            Micrometer core — MeterRegistry SPI.
+            Compile scope (Maven's equivalent of Gradle's 'api'): transitively
+            visible to consumers so they can reference Micrometer types directly.
+        -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <version>${micrometer.version}</version>
+        </dependency>
+
+    </dependencies>
 
 </project>
