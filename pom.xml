@@ -35,6 +35,7 @@
     <properties>
         <micrometer.version>1.16.3</micrometer.version>
         <core-pva.version>4.7.3</core-pva.version>
+        <junit.version>5.11.4</junit.version>
         <!-- Java baseline: must match Phoebus -->
         <java.version>17</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
@@ -75,6 +76,14 @@
             <version>${core-pva.version}</version>
         </dependency>
 
+        <!-- JUnit 5: test scope only, not propagated to consumers -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
     <!-- ================================================================
@@ -108,6 +117,16 @@
                         </manifestEntries>
                     </archive>
                 </configuration>
+            </plugin>
+
+            <!--
+                maven-surefire-plugin 3.x is required to run JUnit 5 (Jupiter) tests.
+                The default version bundled with Maven 3.x targets JUnit 4.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
             </plugin>
 
             <!--
