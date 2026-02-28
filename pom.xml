@@ -34,6 +34,7 @@
          ================================================================ -->
     <properties>
         <micrometer.version>1.16.3</micrometer.version>
+        <core-pva.version>4.7.3</core-pva.version>
         <!-- Java baseline: must match Phoebus -->
         <java.version>17</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
@@ -58,6 +59,20 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-core</artifactId>
             <version>${micrometer.version}</version>
+        </dependency>
+
+        <!--
+            Phoebus core-pva — PVA server implementation.
+            Also compile scope: consumers that call new PvaMeterRegistry(config, clock, existingServer)
+            need access to PVAServer from their own code.
+
+            org.phoebus:core-pva is published to Maven Central starting from 4.6.7.
+            No additional <repositories> entry is required.
+        -->
+        <dependency>
+            <groupId>org.phoebus</groupId>
+            <artifactId>core-pva</artifactId>
+            <version>${core-pva.version}</version>
         </dependency>
 
     </dependencies>
