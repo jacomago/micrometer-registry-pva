@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- ================================================================
+         Project identity
+         ================================================================ -->
+    <groupId>org.phoebus</groupId>
+    <artifactId>micrometer-registry-pva</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>Micrometer Registry PVA</name>
+    <description>
+        A Micrometer MeterRegistry backed by an EPICS PV Access (PVA) server.
+        Any Java application instrumented with Micrometer can publish all its
+        metrics as live PVA process variables accessible to EPICS clients.
+    </description>
+    <url>https://github.com/ControlSystemStudio/phoebus</url>
+
+    <licenses>
+        <license>
+            <name>Eclipse Public License - v 1.0</name>
+            <url>https://www.eclipse.org/legal/epl-v10.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <!-- ================================================================
+         Dependency versions
+         ================================================================ -->
+    <properties>
+        <micrometer.version>1.16.3</micrometer.version>
+        <core-pva.version>4.7.3</core-pva.version>
+        <junit.version>5.11.4</junit.version>
+        <!-- Java baseline: must match Phoebus -->
+        <java.version>17</java.version>
+        <maven.compiler.source>${java.version}</maven.compiler.source>
+        <maven.compiler.target>${java.version}</maven.compiler.target>
+        <maven.compiler.release>${java.version}</maven.compiler.release>
+
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    </properties>
+
+    <!-- ================================================================
+         Dependencies
+         ================================================================ -->
+    <dependencies>
+
+        <!--
+            Micrometer core — MeterRegistry SPI.
+            Compile scope (Maven's equivalent of Gradle's 'api'): transitively
+            visible to consumers so they can reference Micrometer types directly.
+        -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <version>${micrometer.version}</version>
+        </dependency>
+
+        <!--
+            Phoebus core-pva — PVA server implementation.
+            Also compile scope: consumers that call new PvaMeterRegistry(config, clock, existingServer)
+            need access to PVAServer from their own code.
+
+            org.phoebus:core-pva is published to Maven Central starting from 4.6.7.
+            No additional <repositories> entry is required.
+        -->
+        <dependency>
+            <groupId>org.phoebus</groupId>
+            <artifactId>core-pva</artifactId>
+            <version>${core-pva.version}</version>
+        </dependency>
+
+        <!-- JUnit 5: test scope only, not propagated to consumers -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+    </dependencies>
+
+    <!-- ================================================================
+         Build plugins
+         ================================================================ -->
+    <build>
+        <plugins>
+
+            <!--
+                maven-jar-plugin: produce the library JAR with a well-formed
+                MANIFEST.MF, including:
+                  - Implementation-Title / Implementation-Version / Built-By
+                  - Automatic-Module-Name for Java 9+ module-path consumers
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.2</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                            <addDefaultSpecificationEntries>true</addDefaultSpecificationEntries>
+                        </manifest>
+                        <manifestEntries>
+                            <!--
+                                Stable module name enables this library to be placed on the
+                                Java module path without requiring a module-info.java yet.
+                            -->
+                            <Automatic-Module-Name>org.phoebus.pva.micrometer</Automatic-Module-Name>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+
+            <!--
+                maven-surefire-plugin 3.x is required to run JUnit 5 (Jupiter) tests.
+                The default version bundled with Maven 3.x targets JUnit 4.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
+            </plugin>
+
+            <!--
+                maven-install-plugin: installs the built artifact into the local
+                Maven repository (~/.m2) during the 'install' lifecycle phase.
+                Pin the version for reproducible builds; no additional configuration
+                needed beyond the defaults for a library JAR.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-install-plugin</artifactId>
+                <version>3.1.3</version>
+            </plugin>
+
+        </plugins>
+    </build>
+
+</project>
