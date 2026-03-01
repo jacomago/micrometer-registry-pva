@@ -57,13 +57,21 @@ public final class PvaFunctionCounter<T> extends AbstractMeter implements Functi
         super(id);
         this.ref = new WeakReference<>(obj);
         this.countFunction = countFunction;
-        this.data = PVAScalar.doubleScalarBuilder(0.0)
-                .name("")
-                .alarm(new PVAAlarm())
-                .timeStamp(new PVATimeStamp())
-                .build();
+        this.data = buildInitialData();
         this.valueField = data.get("value");
         this.alarmField = data.get("alarm");
+    }
+
+    private static PVAScalar<PVADouble> buildInitialData() {
+        try {
+            return PVAScalar.doubleScalarBuilder(0.0)
+                    .name("")
+                    .alarm(new PVAAlarm())
+                    .timeStamp(new PVATimeStamp())
+                    .build();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to build NTScalar structure", e);
+        }
     }
 
     /**

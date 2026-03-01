@@ -10,8 +10,6 @@ import org.epics.pva.data.nt.PVAAlarm;
 import org.epics.pva.data.nt.PVAAlarm.AlarmSeverity;
 import org.epics.pva.data.nt.PVAAlarm.AlarmStatus;
 import org.epics.pva.data.nt.PVAScalar;
-import org.epics.pva.data.nt.PVAScalarDescriptionNameException;
-import org.epics.pva.data.nt.PVAScalarValueNameException;
 import org.epics.pva.data.nt.PVATimeStamp;
 import org.epics.pva.server.ServerPV;
 
@@ -61,13 +59,21 @@ public final class PvaGauge<T> extends AbstractMeter implements Gauge {
         super(id);
         this.ref = new WeakReference<>(obj);
         this.valueFunction = valueFunction;
-        this.data = PVAScalar.doubleScalarBuilder(0.0)
-                .name("")
-                .alarm(new PVAAlarm())
-                .timeStamp(new PVATimeStamp())
-                .build();
+        this.data = buildInitialData();
         this.valueField = data.get("value");
         this.alarmField = data.get("alarm");
+    }
+
+    private static PVAScalar<PVADouble> buildInitialData() {
+        try {
+            return PVAScalar.doubleScalarBuilder(0.0)
+                    .name("")
+                    .alarm(new PVAAlarm())
+                    .timeStamp(new PVATimeStamp())
+                    .build();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to build NTScalar structure", e);
+        }
     }
 
     /**
