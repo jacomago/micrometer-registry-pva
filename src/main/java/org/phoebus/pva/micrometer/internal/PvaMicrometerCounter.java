@@ -3,6 +3,7 @@ package org.phoebus.pva.micrometer.internal;
 import io.micrometer.core.instrument.AbstractMeter;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Measurement;
+import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Statistic;
 import org.epics.pva.data.PVADouble;
 import org.epics.pva.data.nt.PVAAlarm;

@@ -303,6 +303,11 @@ public class PvaMeterRegistry extends MeterRegistry {
         return TimeUnit.SECONDS;
     }
 
+    @Override
+    protected DistributionStatisticConfig defaultHistogramConfig() {
+        return DistributionStatisticConfig.NONE;
+    }
+
     // -------------------------------------------------------------------------
     // Package-private test support
     // -------------------------------------------------------------------------

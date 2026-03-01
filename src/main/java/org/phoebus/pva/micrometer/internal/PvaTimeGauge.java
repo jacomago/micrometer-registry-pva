@@ -2,6 +2,7 @@ package org.phoebus.pva.micrometer.internal;
 
 import io.micrometer.core.instrument.AbstractMeter;
 import io.micrometer.core.instrument.Measurement;
+import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Statistic;
 import io.micrometer.core.instrument.TimeGauge;
 import org.epics.pva.data.PVADouble;
@@ -70,6 +71,15 @@ public final class PvaTimeGauge<T> extends AbstractMeter implements TimeGauge {
     @Override
     public TimeUnit baseTimeUnit() {
         return valueFunctionUnit;
+    }
+
+    /**
+     * Returns the current value in the meter's declared base time unit.
+     * Returns {@link Double#NaN} if the weak reference has been cleared.
+     */
+    @Override
+    public double value() {
+        return value(valueFunctionUnit);
     }
 
     /**
