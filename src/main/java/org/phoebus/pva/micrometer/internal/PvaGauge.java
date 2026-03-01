@@ -9,6 +9,8 @@ import org.epics.pva.data.nt.PVAAlarm;
 import org.epics.pva.data.nt.PVAAlarm.AlarmSeverity;
 import org.epics.pva.data.nt.PVAAlarm.AlarmStatus;
 import org.epics.pva.data.nt.PVAScalar;
+import org.epics.pva.data.nt.PVAScalarDescriptionNameException;
+import org.epics.pva.data.nt.PVAScalarValueNameException;
 import org.epics.pva.data.nt.PVATimeStamp;
 import org.epics.pva.server.ServerPV;
 
