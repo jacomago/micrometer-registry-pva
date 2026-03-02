@@ -2,12 +2,20 @@ package org.phoebus.pva.micrometer;
 
 import io.micrometer.core.instrument.Clock;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.FunctionTimer;
 import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.LongTaskTimer;
+import io.micrometer.core.instrument.Measurement;
 import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.Statistic;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.TimeGauge;
+import io.micrometer.core.instrument.Timer;
 import org.epics.pva.data.PVADouble;
+import org.epics.pva.data.PVALong;
+import org.epics.pva.data.PVAStructure;
 import org.epics.pva.data.nt.PVAAlarm;
 import org.epics.pva.data.nt.PVAAlarm.AlarmSeverity;
 import org.epics.pva.data.nt.PVAScalar;
@@ -16,12 +24,18 @@ import org.epics.pva.server.ServerPV;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.phoebus.pva.micrometer.internal.PvaDistributionSummary;
 import org.phoebus.pva.micrometer.internal.PvaFunctionCounter;
+import org.phoebus.pva.micrometer.internal.PvaFunctionTimer;
 import org.phoebus.pva.micrometer.internal.PvaGauge;
+import org.phoebus.pva.micrometer.internal.PvaLongTaskTimer;
+import org.phoebus.pva.micrometer.internal.PvaMeter;
 import org.phoebus.pva.micrometer.internal.PvaMicrometerCounter;
 import org.phoebus.pva.micrometer.internal.PvaTimeGauge;
+import org.phoebus.pva.micrometer.internal.PvaTimer;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -331,6 +345,273 @@ class PvaMeterRegistryTest {
             sharedRegistry.close(); // must not close sharedServer
             // sharedServer still open — no exception from double-close
         } // try-with-resources closes sharedServer here
+    }
+
+    // -------------------------------------------------------------------------
+    // Timer tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    void timer_startsAtZero() {
+        Timer timer = Timer.builder("test.timer").register(registry);
+        assertEquals(0L, timer.count());
+        assertEquals(0.0, timer.totalTime(TimeUnit.SECONDS), 1e-9);
+        assertEquals(0.0, timer.max(TimeUnit.SECONDS), 1e-9);
+    }
+
+    @Test
+    void timer_recordsCorrectly() {
+        Timer timer = Timer.builder("test.timer.record").register(registry);
+        timer.record(Duration.ofMillis(500));
+        timer.record(Duration.ofSeconds(2));
+
+        assertEquals(2L, timer.count());
+        assertEquals(2.5, timer.totalTime(TimeUnit.SECONDS), 1e-6);
+        assertEquals(2.0, timer.max(TimeUnit.SECONDS), 1e-6);
+    }
+
+    @Test
+    void timer_pvaStructureHasCorrectFields() {
+        Timer timer = Timer.builder("test.timer.struct").register(registry);
+
+        PvaTimer pvaTimer = (PvaTimer) timer;
+        PVAStructure data = pvaTimer.getInitialData();
+
+        assertNotNull(data.get("count"), "Timer structure must have a 'count' field");
+        assertNotNull(data.get("totalTime"), "Timer structure must have a 'totalTime' field");
+        assertNotNull(data.get("max"), "Timer structure must have a 'max' field");
+        assertNotNull(data.get("alarm"), "Timer structure must have an 'alarm' field");
+        assertNotNull(data.get("timeStamp"), "Timer structure must have a 'timeStamp' field");
+    }
+
+    @Test
+    void timer_updatePvWritesValuesAndClearsAlarm() throws Exception {
+        Timer timer = Timer.builder("test.timer.update").register(registry);
+        timer.record(Duration.ofSeconds(1));
+        timer.record(Duration.ofSeconds(3));
+
+        PvaTimer pvaTimer = (PvaTimer) timer;
+        PVAStructure data = pvaTimer.getInitialData();
+        ServerPV serverPV = registryServerPv("test.timer.update");
+
+        pvaTimer.updatePv(serverPV);
+
+        assertEquals(2L, ((PVALong) data.get("count")).get());
+        assertEquals(4.0, ((PVADouble) data.get("totalTime")).get(), 1e-6,
+                "totalTime must be 4.0 seconds");
+        assertEquals(3.0, ((PVADouble) data.get("max")).get(), 1e-6,
+                "max must be 3.0 seconds");
+        assertEquals(AlarmSeverity.NO_ALARM,
+                ((PVAAlarm) data.get("alarm")).alarmSeverity());
+    }
+
+    // -------------------------------------------------------------------------
+    // DistributionSummary tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    void distributionSummary_startsAtZero() {
+        DistributionSummary summary = DistributionSummary.builder("test.summary").register(registry);
+        assertEquals(0L, summary.count());
+        assertEquals(0.0, summary.totalAmount(), 1e-9);
+        assertEquals(0.0, summary.max(), 1e-9);
+    }
+
+    @Test
+    void distributionSummary_recordsCorrectly() {
+        DistributionSummary summary = DistributionSummary.builder("test.summary.record")
+                .register(registry);
+        summary.record(10.0);
+        summary.record(30.0);
+
+        assertEquals(2L, summary.count());
+        assertEquals(40.0, summary.totalAmount(), 1e-9);
+        assertEquals(30.0, summary.max(), 1e-9);
+    }
+
+    @Test
+    void distributionSummary_pvaStructureHasCorrectFields() {
+        DistributionSummary summary = DistributionSummary.builder("test.summary.struct")
+                .register(registry);
+
+        PvaDistributionSummary pvaSummary = (PvaDistributionSummary) summary;
+        PVAStructure data = pvaSummary.getInitialData();
+
+        assertNotNull(data.get("count"), "Summary structure must have a 'count' field");
+        assertNotNull(data.get("total"), "Summary structure must have a 'total' field");
+        assertNotNull(data.get("max"), "Summary structure must have a 'max' field");
+        assertNotNull(data.get("alarm"), "Summary structure must have an 'alarm' field");
+        assertNotNull(data.get("timeStamp"), "Summary structure must have a 'timeStamp' field");
+    }
+
+    @Test
+    void distributionSummary_updatePvWritesValuesAndClearsAlarm() throws Exception {
+        DistributionSummary summary = DistributionSummary.builder("test.summary.update")
+                .register(registry);
+        summary.record(5.0);
+        summary.record(15.0);
+
+        PvaDistributionSummary pvaSummary = (PvaDistributionSummary) summary;
+        PVAStructure data = pvaSummary.getInitialData();
+        ServerPV serverPV = registryServerPv("test.summary.update");
+
+        pvaSummary.updatePv(serverPV);
+
+        assertEquals(2L, ((PVALong) data.get("count")).get());
+        assertEquals(20.0, ((PVADouble) data.get("total")).get(), 1e-9);
+        assertEquals(15.0, ((PVADouble) data.get("max")).get(), 1e-9);
+        assertEquals(AlarmSeverity.NO_ALARM,
+                ((PVAAlarm) data.get("alarm")).alarmSeverity());
+    }
+
+    // -------------------------------------------------------------------------
+    // LongTaskTimer tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    void longTaskTimer_startsWithNoActiveTasks() {
+        LongTaskTimer ltt = LongTaskTimer.builder("test.ltt").register(registry);
+        assertEquals(0, ltt.activeTasks());
+        assertEquals(0.0, ltt.duration(TimeUnit.SECONDS), 1e-9);
+    }
+
+    @Test
+    void longTaskTimer_tracksActiveTasksCorrectly() {
+        LongTaskTimer ltt = LongTaskTimer.builder("test.ltt.active").register(registry);
+
+        LongTaskTimer.Sample s1 = ltt.start();
+        LongTaskTimer.Sample s2 = ltt.start();
+        assertEquals(2, ltt.activeTasks());
+
+        s1.stop();
+        assertEquals(1, ltt.activeTasks());
+
+        s2.stop();
+        assertEquals(0, ltt.activeTasks());
+    }
+
+    @Test
+    void longTaskTimer_pvaStructureHasCorrectFields() {
+        LongTaskTimer ltt = LongTaskTimer.builder("test.ltt.struct").register(registry);
+
+        PvaLongTaskTimer pvaLtt = (PvaLongTaskTimer) ltt;
+        PVAStructure data = pvaLtt.getInitialData();
+
+        assertNotNull(data.get("activeTasks"), "LongTaskTimer must have an 'activeTasks' field");
+        assertNotNull(data.get("duration"), "LongTaskTimer must have a 'duration' field");
+        assertNotNull(data.get("alarm"), "LongTaskTimer must have an 'alarm' field");
+        assertNotNull(data.get("timeStamp"), "LongTaskTimer must have a 'timeStamp' field");
+    }
+
+    @Test
+    void longTaskTimer_updatePvWritesActiveTaskCountAndClearsAlarm() throws Exception {
+        LongTaskTimer ltt = LongTaskTimer.builder("test.ltt.update").register(registry);
+        LongTaskTimer.Sample s = ltt.start();
+
+        PvaLongTaskTimer pvaLtt = (PvaLongTaskTimer) ltt;
+        PVAStructure data = pvaLtt.getInitialData();
+        ServerPV serverPV = registryServerPv("test.ltt.update");
+
+        pvaLtt.updatePv(serverPV);
+
+        assertEquals(1L, ((PVALong) data.get("activeTasks")).get(),
+                "activeTasks must be 1 while sample is running");
+        assertEquals(AlarmSeverity.NO_ALARM,
+                ((PVAAlarm) data.get("alarm")).alarmSeverity());
+
+        s.stop();
+        pvaLtt.updatePv(serverPV);
+        assertEquals(0L, ((PVALong) data.get("activeTasks")).get(),
+                "activeTasks must be 0 after sample stopped");
+    }
+
+    // -------------------------------------------------------------------------
+    // FunctionTimer tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    void functionTimer_countAndTotalTimeDerivedFromFunctions() {
+        AtomicLong completions = new AtomicLong(0);
+        AtomicLong totalMillis = new AtomicLong(0);
+
+        FunctionTimer ft = FunctionTimer
+                .builder("test.fn.timer", completions,
+                        AtomicLong::get,
+                        obj -> (double) totalMillis.get(),
+                        TimeUnit.MILLISECONDS)
+                .register(registry);
+
+        assertEquals(0.0, ft.count(), 1e-9);
+        assertEquals(0.0, ft.totalTime(TimeUnit.SECONDS), 1e-9);
+
+        completions.set(5);
+        totalMillis.set(2000); // 2000 ms = 2 s
+        assertEquals(5.0, ft.count(), 1e-9);
+        assertEquals(2.0, ft.totalTime(TimeUnit.SECONDS), 1e-6);
+    }
+
+    @Test
+    void functionTimer_updatePvWritesValuesAndClearsAlarm() throws Exception {
+        AtomicLong completions = new AtomicLong(3);
+        AtomicLong totalMillis = new AtomicLong(1500); // 1.5 s
+
+        FunctionTimer ft = FunctionTimer
+                .builder("test.fn.timer.update", completions,
+                        AtomicLong::get,
+                        obj -> (double) totalMillis.get(),
+                        TimeUnit.MILLISECONDS)
+                .register(registry);
+
+        PvaFunctionTimer<?> pvaFt = (PvaFunctionTimer<?>) ft;
+        PVAStructure data = pvaFt.getInitialData();
+        ServerPV serverPV = registryServerPv("test.fn.timer.update");
+
+        pvaFt.updatePv(serverPV);
+
+        assertEquals(3.0, ((PVADouble) data.get("count")).get(), 1e-9);
+        assertEquals(1.5, ((PVADouble) data.get("totalTime")).get(), 1e-6,
+                "totalTime must be 1.5 seconds");
+        assertEquals(AlarmSeverity.NO_ALARM,
+                ((PVAAlarm) data.get("alarm")).alarmSeverity());
+    }
+
+    // -------------------------------------------------------------------------
+    // Custom Meter (catch-all) tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    void customMeter_pvaStructureHasOneFieldPerMeasurement() {
+        double[] source = {42.0, 7.0};
+        Meter meter = Meter.builder("test.custom.meter", Meter.Type.OTHER,
+                        Collections.singletonList(
+                                new Measurement(() -> source[0], Statistic.VALUE)))
+                .register(registry);
+
+        PvaMeter pvaMeter = (PvaMeter) meter;
+        PVAStructure data = pvaMeter.getInitialData();
+
+        assertNotNull(data.get("value"), "Custom meter must have a 'value' field");
+        assertNotNull(data.get("alarm"), "Custom meter must have an 'alarm' field");
+        assertNotNull(data.get("timeStamp"), "Custom meter must have a 'timeStamp' field");
+    }
+
+    @Test
+    void customMeter_updatePvWritesMeasurementValues() throws Exception {
+        double[] source = {99.0};
+        Meter meter = Meter.builder("test.custom.meter.update", Meter.Type.OTHER,
+                        Collections.singletonList(
+                                new Measurement(() -> source[0], Statistic.VALUE)))
+                .register(registry);
+
+        PvaMeter pvaMeter = (PvaMeter) meter;
+        PVAStructure data = pvaMeter.getInitialData();
+        ServerPV serverPV = registryServerPv("test.custom.meter.update");
+
+        pvaMeter.updatePv(serverPV);
+
+        assertEquals(99.0, ((PVADouble) data.get("value")).get(), 1e-9);
+        assertEquals(AlarmSeverity.NO_ALARM,
+                ((PVAAlarm) data.get("alarm")).alarmSeverity());
     }
 
     // -------------------------------------------------------------------------
