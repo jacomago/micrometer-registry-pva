@@ -41,6 +41,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Tests for {@link PvaMeterRegistry} covering scalar meter PV wrappers.
@@ -311,6 +312,51 @@ class PvaMeterRegistryTest {
 
         String pvName = PvNamingStrategy.COLONS.pvName(id);
         assertEquals("my:service:errors:host:srv01", pvName);
+    }
+
+    // -------------------------------------------------------------------------
+    // PV name collision tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    void registry_duplicatePvNameThrowsIllegalArgumentException() {
+        // NAME_ONLY drops tags, so two meters with different tags but same name collide.
+        PvaMeterRegistryConfig nameOnlyConfig = new PvaMeterRegistryConfig() {
+            @Override
+            public String get(String key) { return null; }
+
+            @Override
+            public Duration step() { return Duration.ofHours(1); }
+
+            @Override
+            public PvNamingStrategy namingStrategy() { return PvNamingStrategy.NAME_ONLY; }
+        };
+
+        PvaMeterRegistry nameOnlyRegistry = new PvaMeterRegistry(nameOnlyConfig, Clock.SYSTEM);
+        try {
+            // First registration with this PV name succeeds.
+            Gauge.builder("collision.test", () -> 1.0)
+                    .tag("instance", "a")
+                    .register(nameOnlyRegistry);
+
+            // Second meter produces the same PV name — must throw.
+            assertThrows(IllegalArgumentException.class, () ->
+                    Gauge.builder("collision.test", () -> 2.0)
+                            .tag("instance", "b")
+                            .register(nameOnlyRegistry),
+                    "Registering a second meter that maps to the same PV name must throw");
+        } finally {
+            nameOnlyRegistry.close();
+        }
+    }
+
+    @Test
+    void registry_sameNameDifferentTagsWithDefaultStrategyDoesNotCollide() {
+        // With DOTS_WITH_BRACE_TAGS (default), tags are part of the PV name,
+        // so meters with the same metric name but different tags get distinct PV names.
+        Gauge.builder("no.collision", () -> 1.0).tag("host", "srv1").register(registry);
+        Gauge.builder("no.collision", () -> 2.0).tag("host", "srv2").register(registry);
+        // No exception — both are registered with distinct PV names.
     }
 
     // -------------------------------------------------------------------------
