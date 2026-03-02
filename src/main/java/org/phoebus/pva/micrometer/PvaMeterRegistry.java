@@ -27,6 +27,7 @@ import org.phoebus.pva.micrometer.internal.PvaMicrometerCounter;
 import org.phoebus.pva.micrometer.internal.PvaTimeGauge;
 import org.phoebus.pva.micrometer.internal.PvaTimer;
 
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -86,6 +87,12 @@ public class PvaMeterRegistry extends MeterRegistry {
      */
     private final ConcurrentHashMap<Meter.Id, Runnable> pollActions = new ConcurrentHashMap<>();
 
+    /**
+     * Tracks PV names that are currently registered, enabling fast O(1) collision detection
+     * before attempting to create a duplicate channel on the server.
+     */
+    private final Set<String> registeredPvNames = ConcurrentHashMap.newKeySet();
+
     // -------------------------------------------------------------------------
     // Constructors
     // -------------------------------------------------------------------------
@@ -127,6 +134,8 @@ public class PvaMeterRegistry extends MeterRegistry {
 
         // Close the backing ServerPV whenever a meter is removed from the registry.
         config().onMeterRemoved(meter -> {
+            String pvName = config.namingStrategy().pvName(meter.getId());
+            registeredPvNames.remove(pvName);
             ServerPV pv = serverPVs.remove(meter.getId());
             if (pv != null) {
                 pv.close();
@@ -134,9 +143,9 @@ public class PvaMeterRegistry extends MeterRegistry {
             pollActions.remove(meter.getId());
         });
 
-        // Start the poll loop.
+        // Start the poll loop immediately, then repeat at each step interval.
         long stepMillis = config.step().toMillis();
-        pollExecutor.scheduleAtFixedRate(this::poll, stepMillis, stepMillis,
+        pollExecutor.scheduleAtFixedRate(this::poll, 0, stepMillis,
                 TimeUnit.MILLISECONDS);
     }
 
@@ -168,6 +177,10 @@ public class PvaMeterRegistry extends MeterRegistry {
      */
     private void registerPv(Meter.Id id, PVAStructure initialData,
             String pvName, ThrowingRunnable pollAction) {
+        if (!registeredPvNames.add(pvName)) {
+            throw new IllegalArgumentException(
+                    "A PV with name '" + pvName + "' is already registered in this registry");
+        }
         try {
             ServerPV serverPV = pvaServer.createPV(pvName, initialData);
             serverPVs.put(id, serverPV);
@@ -179,6 +192,7 @@ public class PvaMeterRegistry extends MeterRegistry {
                 }
             });
         } catch (Exception e) {
+            registeredPvNames.remove(pvName);
             throw new RuntimeException("Failed to create PVA channel '" + pvName + "'", e);
         }
     }
@@ -402,6 +416,7 @@ public class PvaMeterRegistry extends MeterRegistry {
         });
         serverPVs.clear();
         pollActions.clear();
+        registeredPvNames.clear();
 
         if (ownsServer) {
             try {
