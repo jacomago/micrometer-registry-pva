@@ -17,10 +17,15 @@ import io.micrometer.core.instrument.distribution.pause.PauseDetector;
 import org.epics.pva.data.PVAStructure;
 import org.epics.pva.server.PVAServer;
 import org.epics.pva.server.ServerPV;
+import org.phoebus.pva.micrometer.internal.PvaDistributionSummary;
 import org.phoebus.pva.micrometer.internal.PvaFunctionCounter;
+import org.phoebus.pva.micrometer.internal.PvaFunctionTimer;
 import org.phoebus.pva.micrometer.internal.PvaGauge;
+import org.phoebus.pva.micrometer.internal.PvaLongTaskTimer;
+import org.phoebus.pva.micrometer.internal.PvaMeter;
 import org.phoebus.pva.micrometer.internal.PvaMicrometerCounter;
 import org.phoebus.pva.micrometer.internal.PvaTimeGauge;
+import org.phoebus.pva.micrometer.internal.PvaTimer;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -249,49 +254,86 @@ public class PvaMeterRegistry extends MeterRegistry {
     }
 
     // -------------------------------------------------------------------------
-    // MeterRegistry abstract methods — complex types (future tasks)
+    // MeterRegistry abstract methods — complex types (Task 4)
     // -------------------------------------------------------------------------
 
-    /** @throws UnsupportedOperationException always — Timer support is deferred to a future task. */
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Creates a {@code micrometer:Timer:1.0} PVA channel that publishes
+     * {@code count}, {@code totalTime} (seconds), and {@code max} (seconds) on every tick.
+     */
     @Override
     protected Timer newTimer(Meter.Id id, DistributionStatisticConfig distributionStatisticConfig,
             PauseDetector pauseDetector) {
-        throw new UnsupportedOperationException(
-                "Timer PVA channels are not yet implemented (see plan Task 4). "
-                + "Use a CompositeMeterRegistry to combine PvaMeterRegistry with "
-                + "a registry that supports Timers.");
+        PvaTimer timer = new PvaTimer(id, clock, distributionStatisticConfig, pauseDetector);
+        String pvName = config.namingStrategy().pvName(id);
+        registerPv(id, timer.getInitialData(), pvName, timer::updatePv);
+        return timer;
     }
 
-    /** @throws UnsupportedOperationException always — DistributionSummary support is deferred. */
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Creates a {@code micrometer:Summary:1.0} PVA channel that publishes
+     * {@code count}, {@code total}, and {@code max} on every tick.
+     */
     @Override
     protected DistributionSummary newDistributionSummary(Meter.Id id,
             DistributionStatisticConfig distributionStatisticConfig, double scale) {
-        throw new UnsupportedOperationException(
-                "DistributionSummary PVA channels are not yet implemented (see plan Task 4).");
+        PvaDistributionSummary summary =
+                new PvaDistributionSummary(id, clock, distributionStatisticConfig, scale);
+        String pvName = config.namingStrategy().pvName(id);
+        registerPv(id, summary.getInitialData(), pvName, summary::updatePv);
+        return summary;
     }
 
-    /** @throws UnsupportedOperationException always — custom Meter support is deferred. */
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Creates a {@code micrometer:Meter:1.0} PVA channel with one {@code double}
+     * field per measurement, named by the measurement's
+     * {@link io.micrometer.core.instrument.Statistic} enum constant (lower-cased).
+     */
     @Override
     protected Meter newMeter(Meter.Id id, Meter.Type type, Iterable<Measurement> measurements) {
-        throw new UnsupportedOperationException(
-                "Custom Meter PVA channels are not yet implemented (see plan Task 4).");
+        PvaMeter meter = new PvaMeter(id, measurements);
+        String pvName = config.namingStrategy().pvName(id);
+        registerPv(id, meter.getInitialData(), pvName, meter::updatePv);
+        return meter;
     }
 
-    /** @throws UnsupportedOperationException always — FunctionTimer support is deferred. */
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Creates a {@code micrometer:FunctionTimer:1.0} PVA channel that publishes
+     * {@code count} and {@code totalTime} (seconds) on every tick.
+     * The referenced object is held via a weak reference.
+     */
     @Override
     protected <T> FunctionTimer newFunctionTimer(Meter.Id id, T obj,
             ToLongFunction<T> countFunction, ToDoubleFunction<T> totalTimeFunction,
             TimeUnit totalTimeFunctionUnit) {
-        throw new UnsupportedOperationException(
-                "FunctionTimer PVA channels are not yet implemented (see plan Task 4).");
+        PvaFunctionTimer<T> ft = new PvaFunctionTimer<>(
+                id, obj, countFunction, totalTimeFunction, totalTimeFunctionUnit);
+        String pvName = config.namingStrategy().pvName(id);
+        registerPv(id, ft.getInitialData(), pvName, ft::updatePv);
+        return ft;
     }
 
-    /** @throws UnsupportedOperationException always — LongTaskTimer support is deferred. */
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Creates a {@code micrometer:LongTaskTimer:1.0} PVA channel that publishes
+     * {@code activeTasks} and {@code duration} (seconds) on every tick.
+     */
     @Override
     protected LongTaskTimer newLongTaskTimer(Meter.Id id,
             DistributionStatisticConfig distributionStatisticConfig) {
-        throw new UnsupportedOperationException(
-                "LongTaskTimer PVA channels are not yet implemented (see plan Task 4).");
+        PvaLongTaskTimer ltt = new PvaLongTaskTimer(id, clock);
+        String pvName = config.namingStrategy().pvName(id);
+        registerPv(id, ltt.getInitialData(), pvName, ltt::updatePv);
+        return ltt;
     }
 
     /**
