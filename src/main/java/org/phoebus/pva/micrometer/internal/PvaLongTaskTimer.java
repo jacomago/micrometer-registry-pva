@@ -6,6 +6,7 @@ import io.micrometer.core.instrument.LongTaskTimer;
 import io.micrometer.core.instrument.Measurement;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Statistic;
+import io.micrometer.core.instrument.distribution.HistogramSnapshot;
 import org.epics.pva.data.PVADouble;
 import org.epics.pva.data.PVALong;
 import org.epics.pva.data.PVAStructure;
@@ -121,6 +122,18 @@ public final class PvaLongTaskTimer extends AbstractMeter implements LongTaskTim
     @Override
     public TimeUnit baseTimeUnit() {
         return TimeUnit.SECONDS;
+    }
+
+    /**
+     * Returns a minimal histogram snapshot. This registry does not support percentiles
+     * or SLO buckets on LongTaskTimer; histograms are out of scope per the design plan.
+     */
+    @Override
+    public HistogramSnapshot takeSnapshot() {
+        return HistogramSnapshot.empty(
+                (long) activeTasks(),
+                duration(TimeUnit.NANOSECONDS),
+                max(TimeUnit.NANOSECONDS));
     }
 
     @Override
