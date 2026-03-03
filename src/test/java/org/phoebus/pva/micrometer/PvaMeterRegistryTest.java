@@ -13,6 +13,10 @@ import io.micrometer.core.instrument.Statistic;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.TimeGauge;
 import io.micrometer.core.instrument.Timer;
+import org.epics.pva.PVASettings;
+import org.epics.pva.client.ClientChannelState;
+import org.epics.pva.client.PVAChannel;
+import org.epics.pva.client.PVAClient;
 import org.epics.pva.data.PVADouble;
 import org.epics.pva.data.PVALong;
 import org.epics.pva.data.PVAStructure;
@@ -24,6 +28,8 @@ import org.epics.pva.server.ServerPV;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.concurrent.CountDownLatch;
 import org.phoebus.pva.micrometer.internal.PvaDistributionSummary;
 import org.phoebus.pva.micrometer.internal.PvaFunctionCounter;
 import org.phoebus.pva.micrometer.internal.PvaFunctionTimer;
@@ -42,6 +48,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for {@link PvaMeterRegistry} covering scalar meter PV wrappers.
@@ -658,6 +665,118 @@ class PvaMeterRegistryTest {
         assertEquals(99.0, ((PVADouble) data.get("value")).get(), 1e-9);
         assertEquals(AlarmSeverity.NO_ALARM,
                 ((PVAAlarm) data.get("alarm")).alarmSeverity());
+    }
+
+    // -------------------------------------------------------------------------
+    // Integration test: full PVA round-trip via PVAClient
+    // -------------------------------------------------------------------------
+
+    /**
+     * End-to-end test: verifies that a {@link Gauge} and a {@link Counter} registered
+     * with a real {@code PvaMeterRegistry} are accessible as live PVA channels, and that
+     * {@link PvaMeterRegistry#close()} causes connected clients to receive a
+     * channel-destroyed notification.
+     *
+     * <p>The test uses a 1-second step so that at least two poll ticks fire during the
+     * {@code Thread.sleep(2500)} pause, ensuring the PVA channels carry the expected
+     * values before the client connects.
+     *
+     * <p>When the server closes a channel via {@code CMD_DESTROY_CHANNEL} on a
+     * <em>connected</em> (not client-initiated closing) channel, the PVA client library
+     * calls {@code resetConnection()} which transitions the channel to
+     * {@link ClientChannelState#INIT} — not {@code CLOSED}.  The {@code CLOSED} state is
+     * only reached through a client-initiated close.  The test therefore counts down the
+     * destroyed latch on {@code INIT} transitions that occur after the channel was
+     * previously {@code CONNECTED}.
+     */
+    @Test
+    void integration_gaugeAndCounterValuesAvailableViaPvaClient() throws Exception {
+        PvaMeterRegistryConfig shortStepConfig = new PvaMeterRegistryConfig() {
+            @Override
+            public String get(String key) { return null; }
+
+            @Override
+            public Duration step() { return Duration.ofSeconds(1); }
+        };
+
+        // Start an explicit PVAServer so we can read its actual TCP port.
+        // Passing it to PvaMeterRegistry via the shared-server constructor avoids the
+        // registry creating a second server that might bind a different port.
+        try (PVAServer integServer = new PVAServer()) {
+            // getTCPAddress(false) returns the InetSocketAddress the server is listening on.
+            int serverPort = integServer.getTCPAddress(false).getPort();
+
+            // Configure the PVA client for direct TCP connection to the known port,
+            // bypassing UDP broadcast/multicast (which is unreliable in CI containers).
+            String savedNameServers = PVASettings.EPICS_PVA_NAME_SERVERS;
+            boolean savedAutoAddrList = PVASettings.EPICS_PVA_AUTO_ADDR_LIST;
+            PVASettings.EPICS_PVA_NAME_SERVERS = "127.0.0.1:" + serverPort;
+            PVASettings.EPICS_PVA_AUTO_ADDR_LIST = false;
+
+            PvaMeterRegistry integRegistry =
+                    new PvaMeterRegistry(shortStepConfig, Clock.SYSTEM, integServer);
+            try {
+                // Register a static gauge and a counter incremented to 7.
+                Gauge.builder("integration.gauge", () -> 42.0).register(integRegistry);
+                Counter counter = Counter.builder("integration.counter").register(integRegistry);
+                counter.increment(7);
+
+                // Allow two poll ticks (step = 1 s → at least two full cycles in 2 500 ms).
+                Thread.sleep(2500);
+
+                // Track channel-destroyed notifications for both PVs.
+                // The server-side CMD_DESTROY_CHANNEL causes resetConnection() → INIT on
+                // connected channels, so we latch on INIT transitions post-connection.
+                CountDownLatch destroyedLatch = new CountDownLatch(2);
+
+                try (PVAClient client = new PVAClient()) {
+                    // --- Gauge PV ---
+                    // wasConnected tracks whether the channel reached CONNECTED at least once,
+                    // so that the first INIT (server destroy) can be distinguished from any
+                    // INIT that might occur before the initial connection completes.
+                    java.util.concurrent.atomic.AtomicBoolean gaugeConnected =
+                            new java.util.concurrent.atomic.AtomicBoolean(false);
+                    PVAChannel gaugeChannel = client.getChannel("integration.gauge",
+                            (ch, state) -> {
+                                if (state == ClientChannelState.CONNECTED) {
+                                    gaugeConnected.set(true);
+                                } else if (gaugeConnected.get() && state == ClientChannelState.INIT) {
+                                    destroyedLatch.countDown();
+                                }
+                            });
+                    gaugeChannel.connect().get(5, TimeUnit.SECONDS);
+                    PVAStructure gaugeStructure = gaugeChannel.read("").get(5, TimeUnit.SECONDS);
+                    assertEquals(42.0, ((PVADouble) gaugeStructure.get("value")).get(), 1e-9,
+                            "Gauge PV value must be 42.0");
+
+                    // --- Counter PV ---
+                    java.util.concurrent.atomic.AtomicBoolean counterConnected =
+                            new java.util.concurrent.atomic.AtomicBoolean(false);
+                    PVAChannel counterChannel = client.getChannel("integration.counter",
+                            (ch, state) -> {
+                                if (state == ClientChannelState.CONNECTED) {
+                                    counterConnected.set(true);
+                                } else if (counterConnected.get() && state == ClientChannelState.INIT) {
+                                    destroyedLatch.countDown();
+                                }
+                            });
+                    counterChannel.connect().get(5, TimeUnit.SECONDS);
+                    PVAStructure counterStructure = counterChannel.read("").get(5, TimeUnit.SECONDS);
+                    assertEquals(7.0, ((PVADouble) counterStructure.get("value")).get(), 1e-9,
+                            "Counter PV value must be 7.0");
+
+                    // Closing the registry sends CMD_DESTROY_CHANNEL to connected clients.
+                    integRegistry.close();
+
+                    assertTrue(destroyedLatch.await(5, TimeUnit.SECONDS),
+                            "Both PV channels must receive a channel-destroyed notification within 5 s");
+                }
+            } finally {
+                integRegistry.close(); // idempotent; ensures cleanup if an assertion fails early
+                PVASettings.EPICS_PVA_NAME_SERVERS = savedNameServers;
+                PVASettings.EPICS_PVA_AUTO_ADDR_LIST = savedAutoAddrList;
+            }
+        }
     }
 
     // -------------------------------------------------------------------------
