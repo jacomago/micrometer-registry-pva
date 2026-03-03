@@ -27,8 +27,10 @@ import org.phoebus.pva.micrometer.internal.PvaMicrometerCounter;
 import org.phoebus.pva.micrometer.internal.PvaTimeGauge;
 import org.phoebus.pva.micrometer.internal.PvaTimer;
 
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -93,6 +95,19 @@ public class PvaMeterRegistry extends MeterRegistry {
      */
     private final Set<String> registeredPvNames = ConcurrentHashMap.newKeySet();
 
+    /**
+     * Maps raw PVA channel names to their {@link ServerPV}s for non-meter channels
+     * created by {@link #createRawPv(String, PVAStructure)} (e.g., {@code InfoPv},
+     * {@code HealthPv}).
+     */
+    private final ConcurrentHashMap<String, ServerPV> rawPvs = new ConcurrentHashMap<>();
+
+    /**
+     * Additional tick listeners registered by non-meter PVs (e.g., {@code HealthPv}).
+     * Invoked at the end of every poll tick, after all meter poll actions.
+     */
+    private final List<Runnable> tickListeners = new CopyOnWriteArrayList<>();
+
     // -------------------------------------------------------------------------
     // Constructors
     // -------------------------------------------------------------------------
@@ -153,13 +168,20 @@ public class PvaMeterRegistry extends MeterRegistry {
     // Poll loop
     // -------------------------------------------------------------------------
 
-    /** Invoked on every poll tick: runs all registered poll actions. */
+    /** Invoked on every poll tick: runs all registered poll actions then tick listeners. */
     private void poll() {
         for (Runnable action : pollActions.values()) {
             try {
                 action.run();
             } catch (Exception e) {
                 logger.log(Level.WARNING, "Unexpected error in PVA poll action", e);
+            }
+        }
+        for (Runnable listener : tickListeners) {
+            try {
+                listener.run();
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Unexpected error in PVA tick listener", e);
             }
         }
     }
@@ -365,7 +387,7 @@ public class PvaMeterRegistry extends MeterRegistry {
     }
 
     // -------------------------------------------------------------------------
-    // Package-private test support
+    // Package-private support (tests and internal binder PVs)
     // -------------------------------------------------------------------------
 
     /**
@@ -376,10 +398,51 @@ public class PvaMeterRegistry extends MeterRegistry {
      * without requiring reflection or a full PVA client round-trip.
      */
     ServerPV serverPv(String pvName) {
-        return serverPVs.values().stream()
+        // Check meter-backed PVs first.
+        ServerPV found = serverPVs.values().stream()
                 .filter(pv -> pvName.equals(pv.getName()))
                 .findFirst()
                 .orElse(null);
+        if (found != null) {
+            return found;
+        }
+        // Fall back to raw PVs (InfoPv, HealthPv, etc.).
+        return rawPvs.get(pvName);
+    }
+
+    /**
+     * Creates a raw PVA channel not backed by a Micrometer meter.
+     *
+     * <p>Package-private; used by {@code InfoPv} and {@code HealthPv} to publish
+     * non-meter data (build metadata, aggregate health status) on the same PVAServer.
+     * The channel is closed when the server shuts down.
+     *
+     * @param pvName      PVA channel name
+     * @param initialData PVA structure defining the channel type and initial values
+     * @return the newly created {@link ServerPV}
+     * @throws RuntimeException if the channel cannot be created
+     */
+    ServerPV createRawPv(String pvName, PVAStructure initialData) {
+        try {
+            ServerPV pv = pvaServer.createPV(pvName, initialData);
+            rawPvs.put(pvName, pv);
+            return pv;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create raw PVA channel '" + pvName + "'", e);
+        }
+    }
+
+    /**
+     * Registers a listener that is invoked on every poll tick, after all meter poll
+     * actions have run.
+     *
+     * <p>Package-private; used by {@code HealthPv} to push updated health status to
+     * subscribed clients on each poll tick without requiring a Micrometer meter.
+     *
+     * @param listener the action to invoke; must not throw checked exceptions
+     */
+    void registerTickListener(Runnable listener) {
+        tickListeners.add(listener);
     }
 
     // -------------------------------------------------------------------------
@@ -415,8 +478,10 @@ public class PvaMeterRegistry extends MeterRegistry {
             }
         });
         serverPVs.clear();
+        rawPvs.clear();
         pollActions.clear();
         registeredPvNames.clear();
+        tickListeners.clear();
 
         if (ownsServer) {
             try {
