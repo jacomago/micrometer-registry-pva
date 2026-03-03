@@ -48,6 +48,7 @@ public final class PvaServiceBinder {
 
     private final String prefix;
 
+    private boolean hasBuildInfo = false;
     private String version;
     private String buildDate;
     private String gitCommit;
@@ -101,6 +102,7 @@ public final class PvaServiceBinder {
      * @return {@code this} for chaining
      */
     public PvaServiceBinder withBuildInfo(String version, String buildDate, String gitCommit) {
+        this.hasBuildInfo = true;
         this.version = version;
         this.buildDate = buildDate;
         this.gitCommit = gitCommit;
@@ -190,7 +192,7 @@ public final class PvaServiceBinder {
         }
 
         // Build-info PV — one-shot, never updated after creation.
-        if (version != null || buildDate != null || gitCommit != null) {
+        if (hasBuildInfo) {
             new InfoPv(prefix, version, buildDate, gitCommit).createPv(registry);
         }
 
