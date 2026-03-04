@@ -87,6 +87,55 @@
     </dependencies>
 
     <!-- ================================================================
+         Distribution management
+         ================================================================ -->
+    <!--
+        Default target: local Maven repository (~/.m2).
+        Run `mvn install` to install the artifact locally.
+        Run `mvn deploy -P phoebus-releases` to push to the Phoebus
+        Nexus/Artifactory instance (URL confirmed separately).
+    -->
+    <distributionManagement>
+        <repository>
+            <id>local</id>
+            <url>file://${user.home}/.m2/repository</url>
+        </repository>
+    </distributionManagement>
+
+    <!-- ================================================================
+         Profiles
+         ================================================================ -->
+    <profiles>
+        <!--
+            phoebus-releases: deploy to the Phoebus Nexus/Artifactory release
+            repository.  Activate with: mvn deploy -P phoebus-releases
+
+            The repository URL below is a placeholder — replace it with the
+            confirmed Nexus/Artifactory URL before the first release deploy.
+            Set the property on the command line or in ~/.m2/settings.xml:
+              -Dphoebus.nexus.url=https://nexus.example.org
+
+            Configure credentials in ~/.m2/settings.xml under a <server> entry
+            whose <id> matches `phoebus-releases`.
+        -->
+        <profile>
+            <id>phoebus-releases</id>
+            <distributionManagement>
+                <repository>
+                    <id>phoebus-releases</id>
+                    <name>Phoebus Releases</name>
+                    <url>${phoebus.nexus.url}/repository/releases/</url>
+                </repository>
+                <snapshotRepository>
+                    <id>phoebus-releases</id>
+                    <name>Phoebus Snapshots</name>
+                    <url>${phoebus.nexus.url}/repository/snapshots/</url>
+                </snapshotRepository>
+            </distributionManagement>
+        </profile>
+    </profiles>
+
+    <!-- ================================================================
          Build plugins
          ================================================================ -->
     <build>
