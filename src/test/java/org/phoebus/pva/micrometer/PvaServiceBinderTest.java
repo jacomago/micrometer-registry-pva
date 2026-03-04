@@ -4,9 +4,9 @@ import io.micrometer.core.instrument.Clock;
 import org.epics.pva.PVASettings;
 import org.epics.pva.client.PVAChannel;
 import org.epics.pva.client.PVAClient;
+import org.epics.pva.data.PVAInt;
 import org.epics.pva.data.PVAString;
 import org.epics.pva.data.PVAStructure;
-import org.epics.pva.data.nt.PVAAlarm;
 import org.epics.pva.data.nt.PVAAlarm.AlarmSeverity;
 import org.epics.pva.server.PVAServer;
 import org.epics.pva.server.ServerPV;
@@ -303,7 +303,7 @@ class PvaServiceBinderTest {
             PvaMeterRegistry integRegistry =
                     new PvaMeterRegistry(shortStepConfig, Clock.SYSTEM, integServer);
             try {
-                String prefix = "integ.health";
+                String prefix = "bind.svc";
 
                 // Mutable health state: starts DOWN, will be switched to UP later.
                 AtomicReference<Health> healthRef =
@@ -323,13 +323,15 @@ class PvaServiceBinderTest {
                     PVAChannel healthChannel = client.getChannel(prefix + ".health");
                     healthChannel.connect().get(5, TimeUnit.SECONDS);
 
-                    // Assert DOWN: value == "DOWN", alarm.severity == 2 (MAJOR)
+                    // Assert DOWN: value == "DOWN", alarm.severity == 2 (MAJOR).
+                    // The PVA client deserialises the alarm sub-structure as a plain
+                    // PVAStructure, so we read the severity integer field directly.
                     PVAStructure downData = healthChannel.read("").get(5, TimeUnit.SECONDS);
                     assertEquals("DOWN", ((PVAString) downData.get("value")).get(),
                             "health PV value must be 'DOWN'");
-                    PVAAlarm downAlarm = downData.get("alarm");
-                    assertEquals(AlarmSeverity.MAJOR, downAlarm.alarmSeverity(),
-                            "DOWN status must map to alarm severity MAJOR (ordinal 2)");
+                    PVAStructure downAlarm = downData.get("alarm");
+                    assertEquals(2, ((PVAInt) downAlarm.get("severity")).get(),
+                            "DOWN status must map to alarm severity 2 (MAJOR)");
 
                     // Replace indicator with UP, wait for the next poll tick.
                     healthRef.set(Health.up());
@@ -337,9 +339,9 @@ class PvaServiceBinderTest {
 
                     // Assert UP: alarm.severity == 0 (NO_ALARM)
                     PVAStructure upData = healthChannel.read("").get(5, TimeUnit.SECONDS);
-                    PVAAlarm upAlarm = upData.get("alarm");
-                    assertEquals(AlarmSeverity.NO_ALARM, upAlarm.alarmSeverity(),
-                            "UP status must map to alarm severity NO_ALARM (ordinal 0)");
+                    PVAStructure upAlarm = upData.get("alarm");
+                    assertEquals(0, ((PVAInt) upAlarm.get("severity")).get(),
+                            "UP status must map to alarm severity 0 (NO_ALARM)");
                 }
             } finally {
                 integRegistry.close();
@@ -371,7 +373,7 @@ class PvaServiceBinderTest {
             PvaMeterRegistry integRegistry =
                     new PvaMeterRegistry(TEST_CONFIG, Clock.SYSTEM, integServer);
             try {
-                String prefix = "integ.info";
+                String prefix = "bind.build";
 
                 PvaServiceBinder.forService(prefix)
                         .withBuildInfo("1.4.2", "2026-02-26", "abc1234")
