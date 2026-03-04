@@ -120,7 +120,7 @@ public final class HealthPv {
                 String msg = e.getMessage() != null ? e.getMessage() : "Health check threw exception";
                 h = Health.down(msg);
             }
-            if (h.status().ordinal() > worst.ordinal()) {
+            if (h.status().compareTo(worst) > 0) {
                 worst = h.status();
             }
             if (h.message() != null && !h.message().isEmpty()) {

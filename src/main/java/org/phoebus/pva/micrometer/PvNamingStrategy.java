@@ -48,14 +48,10 @@ public interface PvNamingStrategy {
      * <p>Tags are sorted alphabetically by key.
      */
     PvNamingStrategy DOTS_WITH_BRACE_TAGS = id -> {
-        List<Tag> tags = id.getTags().stream()
-                .sorted(Comparator.comparing(Tag::getKey))
-                .collect(Collectors.toList());
-
+        List<Tag> tags = sortedTags(id);
         if (tags.isEmpty()) {
             return id.getName();
         }
-
         StringBuilder sb = new StringBuilder(id.getName());
         sb.append('{');
         for (int i = 0; i < tags.size(); i++) {
@@ -84,12 +80,8 @@ public interface PvNamingStrategy {
      * <p>Tags are sorted alphabetically by key.
      */
     PvNamingStrategy COLONS = id -> {
-        List<Tag> tags = id.getTags().stream()
-                .sorted(Comparator.comparing(Tag::getKey))
-                .collect(Collectors.toList());
-
         StringBuilder sb = new StringBuilder(id.getName().replace('.', ':'));
-        for (Tag tag : tags) {
+        for (Tag tag : sortedTags(id)) {
             sb.append(':').append(tag.getKey()).append(':').append(tag.getValue());
         }
         return sb.toString();
@@ -104,5 +96,12 @@ public interface PvNamingStrategy {
      *
      * <p>Example: {@code archiver.engine.pv.total}
      */
-    PvNamingStrategy NAME_ONLY = id -> id.getName();
+    PvNamingStrategy NAME_ONLY = Meter.Id::getName;
+
+    /** Returns the meter's tags sorted alphabetically by key for deterministic PV names. */
+    private static List<Tag> sortedTags(Meter.Id id) {
+        return id.getTags().stream()
+                .sorted(Comparator.comparing(Tag::getKey))
+                .collect(Collectors.toList());
+    }
 }

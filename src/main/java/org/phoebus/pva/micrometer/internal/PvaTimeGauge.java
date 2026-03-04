@@ -65,15 +65,7 @@ public final class PvaTimeGauge<T> extends AbstractMeter implements TimeGauge {
     }
 
     private static PVAScalar<PVADouble> buildInitialData() {
-        try {
-            return PVAScalar.doubleScalarBuilder(0.0)
-                    .name("")
-                    .alarm(new PVAAlarm())
-                    .timeStamp(new PVATimeStamp())
-                    .build();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to build NTScalar structure", e);
-        }
+        return PvStructures.buildDoubleScalar();
     }
 
     @Override
@@ -135,7 +127,7 @@ public final class PvaTimeGauge<T> extends AbstractMeter implements TimeGauge {
             valueField.set(seconds);
             if (Double.isNaN(seconds)) {
                 alarmField.set(AlarmSeverity.INVALID, AlarmStatus.DRIVER,
-                        "Object reference garbage collected");
+                        PvStructures.GC_ALARM_MESSAGE);
             } else {
                 alarmField.set(AlarmSeverity.NO_ALARM, AlarmStatus.NO_STATUS, "");
             }

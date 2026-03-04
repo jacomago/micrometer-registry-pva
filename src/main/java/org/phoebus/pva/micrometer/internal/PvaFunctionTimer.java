@@ -146,7 +146,7 @@ public final class PvaFunctionTimer<T> extends AbstractMeter implements Function
             double currentTotalTime = totalTime(TimeUnit.SECONDS);
             if (Double.isNaN(currentCount) || Double.isNaN(currentTotalTime)) {
                 alarmField.set(AlarmSeverity.INVALID, AlarmStatus.DRIVER,
-                        "Object reference garbage collected");
+                        PvStructures.GC_ALARM_MESSAGE);
             } else {
                 countField.set(currentCount);
                 totalTimeField.set(currentTotalTime);
