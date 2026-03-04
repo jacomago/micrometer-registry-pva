@@ -38,7 +38,7 @@ import java.util.List;
  *       {@link UptimeMetrics} unconditionally.</li>
  *   <li>Conditionally binds {@link JvmGcMetrics}, {@link JvmThreadMetrics}, and
  *       {@link ClassLoaderMetrics}.</li>
- *   <li>Creates a {@code <prefix>.build} PV with static build metadata if
+ *   <li>Creates a {@code <prefix>.info} PV with static build metadata (JSON) if
  *       {@link #withBuildInfo} was called.</li>
  *   <li>Creates a {@code <prefix>.health} PV updated on every poll tick if at least
  *       one {@link HealthIndicator} was registered via {@link #withHealthIndicator}.</li>
@@ -90,11 +90,12 @@ public final class PvaServiceBinder {
     // -------------------------------------------------------------------------
 
     /**
-     * Stores build metadata to publish as a one-time {@code <prefix>.build} PVA channel.
+     * Stores build metadata to publish as a one-time {@code <prefix>.info} PVA channel.
      *
-     * <p>The channel is created during {@link #bindTo} and its value never changes.
-     * Any of the three parameters may be {@code null} (they will be published as empty
-     * strings).
+     * <p>The channel is an {@code NTScalar string} whose {@code value} is a JSON object
+     * containing the supplied fields plus the current hostname.  It is created during
+     * {@link #bindTo} and its value never changes.
+     * Any of the three parameters may be {@code null} (they will be omitted from the JSON).
      *
      * @param version   artifact version string, e.g. {@code "1.0.0-SNAPSHOT"}
      * @param buildDate ISO-8601 build date, e.g. {@code "2024-01-15"}
@@ -191,14 +192,15 @@ public final class PvaServiceBinder {
             new ClassLoaderMetrics().bindTo(registry);
         }
 
-        // Build-info PV — one-shot, never updated after creation.
+        // Build-info PV — one-shot NTScalar string with JSON value; never updated after creation.
         if (hasBuildInfo) {
-            new InfoPv(prefix, version, buildDate, gitCommit).createPv(registry);
+            new InfoPv(registry, prefix + ".info", prefix, version, buildDate, gitCommit);
         }
 
-        // Health PV — updated on every poll tick.
+        // Health PV — NTScalar string updated on every poll tick.
         if (!healthIndicators.isEmpty()) {
-            new HealthPv(prefix, List.copyOf(healthIndicators)).createPv(registry);
+            HealthPv healthPv = new HealthPv(registry, prefix + ".health", List.copyOf(healthIndicators));
+            registry.registerTickListener(healthPv::tick);
         }
     }
 }
