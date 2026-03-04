@@ -48,12 +48,12 @@ public final class PvaServiceBinder {
 
     private final String prefix;
 
-    private boolean hasBuildInfo = false;
-    private String version;
-    private String buildDate;
-    private String gitCommit;
+    /** Non-null when {@link #withBuildInfo} has been called. */
+    private BuildInfo buildInfo = null;
 
     private final List<HealthIndicator> healthIndicators = new ArrayList<>();
+
+    private record BuildInfo(String version, String buildDate, String gitCommit) {}
 
     private boolean excludeGcMetrics = false;
     private boolean excludeThreadMetrics = false;
@@ -103,10 +103,7 @@ public final class PvaServiceBinder {
      * @return {@code this} for chaining
      */
     public PvaServiceBinder withBuildInfo(String version, String buildDate, String gitCommit) {
-        this.hasBuildInfo = true;
-        this.version = version;
-        this.buildDate = buildDate;
-        this.gitCommit = gitCommit;
+        this.buildInfo = new BuildInfo(version, buildDate, gitCommit);
         return this;
     }
 
@@ -193,8 +190,9 @@ public final class PvaServiceBinder {
         }
 
         // Build-info PV — one-shot NTScalar string with JSON value; never updated after creation.
-        if (hasBuildInfo) {
-            new InfoPv(registry, prefix + ".info", prefix, version, buildDate, gitCommit);
+        if (buildInfo != null) {
+            new InfoPv(registry, prefix + ".info", prefix,
+                    buildInfo.version(), buildInfo.buildDate(), buildInfo.gitCommit());
         }
 
         // Health PV — NTScalar string updated on every poll tick.

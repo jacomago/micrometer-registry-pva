@@ -63,15 +63,7 @@ public final class PvaFunctionCounter<T> extends AbstractMeter implements Functi
     }
 
     private static PVAScalar<PVADouble> buildInitialData() {
-        try {
-            return PVAScalar.doubleScalarBuilder(0.0)
-                    .name("")
-                    .alarm(new PVAAlarm())
-                    .timeStamp(new PVATimeStamp())
-                    .build();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to build NTScalar structure", e);
-        }
+        return PvStructures.buildDoubleScalar();
     }
 
     /**
@@ -111,7 +103,7 @@ public final class PvaFunctionCounter<T> extends AbstractMeter implements Functi
             valueField.set(current);
             if (Double.isNaN(current)) {
                 alarmField.set(AlarmSeverity.INVALID, AlarmStatus.DRIVER,
-                        "Object reference garbage collected");
+                        PvStructures.GC_ALARM_MESSAGE);
             } else {
                 alarmField.set(AlarmSeverity.NO_ALARM, AlarmStatus.NO_STATUS, "");
             }

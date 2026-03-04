@@ -484,6 +484,14 @@ public class PvaMeterRegistry extends MeterRegistry {
             }
         });
         serverPVs.clear();
+        // Close raw PVs (InfoPv, HealthPv) so clients receive CMD_DESTROY_CHANNEL.
+        rawPvs.values().forEach(pv -> {
+            try {
+                pv.close();
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error closing raw ServerPV during registry shutdown", e);
+            }
+        });
         rawPvs.clear();
         pollActions.clear();
         registeredPvNames.clear();
