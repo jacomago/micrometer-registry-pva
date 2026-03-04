@@ -1,7 +1,14 @@
 package org.phoebus.pva.micrometer;
 
 import io.micrometer.core.instrument.Clock;
+import org.epics.pva.PVASettings;
+import org.epics.pva.client.PVAChannel;
+import org.epics.pva.client.PVAClient;
+import org.epics.pva.data.PVAString;
+import org.epics.pva.data.PVAStructure;
+import org.epics.pva.data.nt.PVAAlarm;
 import org.epics.pva.data.nt.PVAAlarm.AlarmSeverity;
+import org.epics.pva.server.PVAServer;
 import org.epics.pva.server.ServerPV;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,11 +16,14 @@ import org.junit.jupiter.api.Test;
 import org.phoebus.pva.micrometer.Health.Status;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for {@link PvaServiceBinder}, {@link Health}, and {@link HealthIndicator}.
@@ -261,6 +271,142 @@ class PvaServiceBinderTest {
         // We just verify the listener was registered without error.
         assertEquals(0, count[0],
                 "Listener must not fire without a poll tick");
+    }
+
+    // -------------------------------------------------------------------------
+    // Integration tests: full PVA round-trip via PVAClient
+    // -------------------------------------------------------------------------
+
+    /**
+     * End-to-end test: verifies that the {@code <prefix>.health} PV published by
+     * {@link PvaServiceBinder} carries {@code alarm.severity == 2} (MAJOR) and
+     * {@code value == "DOWN"} when the indicator reports DOWN, then transitions to
+     * {@code alarm.severity == 0} (NO_ALARM) after the indicator is replaced with UP.
+     *
+     * <p>Uses a 1-second step so poll ticks fire predictably within the test.
+     */
+    @Test
+    void integration_healthAlarmSeverityReflectsStatusTransition() throws Exception {
+        PvaMeterRegistryConfig shortStepConfig = new PvaMeterRegistryConfig() {
+            @Override public String get(String key) { return null; }
+            @Override public Duration step() { return Duration.ofSeconds(1); }
+        };
+
+        try (PVAServer integServer = new PVAServer()) {
+            int serverPort = integServer.getTCPAddress(false).getPort();
+
+            String savedNameServers = PVASettings.EPICS_PVA_NAME_SERVERS;
+            boolean savedAutoAddrList = PVASettings.EPICS_PVA_AUTO_ADDR_LIST;
+            PVASettings.EPICS_PVA_NAME_SERVERS = "127.0.0.1:" + serverPort;
+            PVASettings.EPICS_PVA_AUTO_ADDR_LIST = false;
+
+            PvaMeterRegistry integRegistry =
+                    new PvaMeterRegistry(shortStepConfig, Clock.SYSTEM, integServer);
+            try {
+                String prefix = "integ.health";
+
+                // Mutable health state: starts DOWN, will be switched to UP later.
+                AtomicReference<Health> healthRef =
+                        new AtomicReference<>(new Health(Status.DOWN, "db unreachable"));
+
+                PvaServiceBinder.forService(prefix)
+                        .withHealthIndicator(healthRef::get)
+                        .withoutGcMetrics()
+                        .withoutThreadMetrics()
+                        .withoutClassLoaderMetrics()
+                        .bindTo(integRegistry);
+
+                // Wait for at least one poll tick to push the DOWN status.
+                Thread.sleep(1500);
+
+                try (PVAClient client = new PVAClient()) {
+                    PVAChannel healthChannel = client.getChannel(prefix + ".health");
+                    healthChannel.connect().get(5, TimeUnit.SECONDS);
+
+                    // Assert DOWN: value == "DOWN", alarm.severity == 2 (MAJOR)
+                    PVAStructure downData = healthChannel.read("").get(5, TimeUnit.SECONDS);
+                    assertEquals("DOWN", ((PVAString) downData.get("value")).get(),
+                            "health PV value must be 'DOWN'");
+                    PVAAlarm downAlarm = downData.get("alarm");
+                    assertEquals(AlarmSeverity.MAJOR, downAlarm.alarmSeverity(),
+                            "DOWN status must map to alarm severity MAJOR (ordinal 2)");
+
+                    // Replace indicator with UP, wait for the next poll tick.
+                    healthRef.set(Health.up());
+                    Thread.sleep(1500);
+
+                    // Assert UP: alarm.severity == 0 (NO_ALARM)
+                    PVAStructure upData = healthChannel.read("").get(5, TimeUnit.SECONDS);
+                    PVAAlarm upAlarm = upData.get("alarm");
+                    assertEquals(AlarmSeverity.NO_ALARM, upAlarm.alarmSeverity(),
+                            "UP status must map to alarm severity NO_ALARM (ordinal 0)");
+                }
+            } finally {
+                integRegistry.close();
+                PVASettings.EPICS_PVA_NAME_SERVERS = savedNameServers;
+                PVASettings.EPICS_PVA_AUTO_ADDR_LIST = savedAutoAddrList;
+            }
+        }
+    }
+
+    /**
+     * End-to-end test: verifies that the {@code <prefix>.info} PV created by
+     * {@link PvaServiceBinder} carries a JSON {@code value} field that contains the
+     * expected {@code version} and a non-empty {@code host} entry.
+     *
+     * <p>The info PV is written once during {@code bindTo()} — no poll tick is needed
+     * before reading it.
+     */
+    @Test
+    void integration_infoPvExposesVersionAndHost() throws Exception {
+        try (PVAServer integServer = new PVAServer()) {
+            int serverPort = integServer.getTCPAddress(false).getPort();
+
+            String savedNameServers = PVASettings.EPICS_PVA_NAME_SERVERS;
+            boolean savedAutoAddrList = PVASettings.EPICS_PVA_AUTO_ADDR_LIST;
+            PVASettings.EPICS_PVA_NAME_SERVERS = "127.0.0.1:" + serverPort;
+            PVASettings.EPICS_PVA_AUTO_ADDR_LIST = false;
+
+            // 1-hour step: info PV is static; no poll tick is required.
+            PvaMeterRegistry integRegistry =
+                    new PvaMeterRegistry(TEST_CONFIG, Clock.SYSTEM, integServer);
+            try {
+                String prefix = "integ.info";
+
+                PvaServiceBinder.forService(prefix)
+                        .withBuildInfo("1.4.2", "2026-02-26", "abc1234")
+                        .withoutGcMetrics()
+                        .withoutThreadMetrics()
+                        .withoutClassLoaderMetrics()
+                        .bindTo(integRegistry);
+
+                // Info PV value is written in the InfoPv constructor — connect immediately.
+                try (PVAClient client = new PVAClient()) {
+                    PVAChannel infoChannel = client.getChannel(prefix + ".info");
+                    infoChannel.connect().get(5, TimeUnit.SECONDS);
+                    PVAStructure infoData = infoChannel.read("").get(5, TimeUnit.SECONDS);
+
+                    String json = ((PVAString) infoData.get("value")).get();
+
+                    // Assert version is correct.
+                    assertTrue(json.contains("\"version\":\"1.4.2\""),
+                            "info JSON must contain \"version\":\"1.4.2\"; actual: " + json);
+
+                    // Assert host is present and non-empty.
+                    int hostKeyIdx = json.indexOf("\"host\":\"");
+                    assertTrue(hostKeyIdx >= 0,
+                            "info JSON must contain a 'host' field; actual: " + json);
+                    int hostValStart = hostKeyIdx + 8; // skip past "\"host\":\""
+                    int hostValEnd = json.indexOf('"', hostValStart);
+                    assertTrue(hostValEnd > hostValStart,
+                            "host value must be non-empty; actual: " + json);
+                }
+            } finally {
+                integRegistry.close();
+                PVASettings.EPICS_PVA_NAME_SERVERS = savedNameServers;
+                PVASettings.EPICS_PVA_AUTO_ADDR_LIST = savedAutoAddrList;
+            }
+        }
     }
 
     // -------------------------------------------------------------------------
