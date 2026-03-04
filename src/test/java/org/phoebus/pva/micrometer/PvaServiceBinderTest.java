@@ -106,8 +106,8 @@ class PvaServiceBinderTest {
                 .withoutClassLoaderMetrics()
                 .bindTo(registry);
 
-        assertNotNull(registry.serverPv("test.build.build"),
-                "build PV must be created when withBuildInfo is called");
+        assertNotNull(registry.serverPv("test.build.info"),
+                "info PV must be created when withBuildInfo is called");
     }
 
     @Test
@@ -118,13 +118,13 @@ class PvaServiceBinderTest {
                 .withoutClassLoaderMetrics()
                 .bindTo(registry);
 
-        assertNull(registry.serverPv("test.nobuild.build"),
-                "build PV must NOT be created when withBuildInfo is not called");
+        assertNull(registry.serverPv("test.nobuild.info"),
+                "info PV must NOT be created when withBuildInfo is not called");
     }
 
     @Test
-    void infoPv_nullFieldsCoercedToEmpty() {
-        // Must not throw even when all fields are null.
+    void infoPv_nullFieldsOmittedFromJson() {
+        // Must not throw even when all fields are null (host is still included).
         PvaServiceBinder.forService("test.nullbuild")
                 .withBuildInfo(null, null, null)
                 .withoutGcMetrics()
@@ -132,8 +132,8 @@ class PvaServiceBinderTest {
                 .withoutClassLoaderMetrics()
                 .bindTo(registry);
 
-        assertNotNull(registry.serverPv("test.nullbuild.build"),
-                "build PV must still be created when nulls are supplied");
+        assertNotNull(registry.serverPv("test.nullbuild.info"),
+                "info PV must still be created when null build fields are supplied");
     }
 
     // -------------------------------------------------------------------------
@@ -179,7 +179,7 @@ class PvaServiceBinderTest {
                 .bindTo(registry);
 
         assertEquals(1, checkCount[0],
-                "HealthPv must call indicator once during initial createPv()");
+                "HealthPv must call indicator once during construction");
     }
 
     @Test

@@ -22,28 +22,24 @@ import java.util.logging.Logger;
  * Publishes the aggregated health of one or more {@link HealthIndicator}s as a PVA
  * channel named {@code <prefix>.health}.
  *
- * <p>On every poll tick (via a
- * {@link PvaMeterRegistry#registerTickListener(Runnable) tick listener}) all registered
- * indicators are called.  The <em>worst</em> status among them determines the published
- * status and alarm severity; all non-empty messages are joined with {@code "; "}.
- *
- * <p>Status-to-alarm mapping:
+ * <p>The channel is an {@code NTScalar string} where:
  * <ul>
- *   <li>{@link Status#UP}       → {@code NO_ALARM}</li>
- *   <li>{@link Status#DEGRADED} → {@code MINOR}</li>
- *   <li>{@link Status#DOWN}     → {@code MAJOR}</li>
- * </ul>
- *
- * <p>If any indicator throws, that indicator is treated as {@link Status#DOWN} with the
- * exception message recorded in the channel's {@code message} field.
- *
- * <p>The PVA structure has type name {@code service:Health:1.0} and contains:
- * <ul>
- *   <li>{@code status}  — {@code "UP"}, {@code "DEGRADED"}, or {@code "DOWN"}</li>
- *   <li>{@code message} — concatenated messages from all indicators</li>
- *   <li>{@code alarm}   — EPICS alarm with severity derived from status</li>
+ *   <li>{@code value} — {@code "UP"}, {@code "DEGRADED"}, or {@code "DOWN"}</li>
+ *   <li>{@code alarm.severity} — {@code 0} (UP), {@code 1} (DEGRADED), {@code 2} (DOWN)</li>
+ *   <li>{@code alarm.message} — concatenated messages from all indicators</li>
  *   <li>{@code timeStamp} — EPICS timestamp updated on every tick</li>
  * </ul>
+ *
+ * <p>The {@link #tick()} method implements <em>worst-wins</em> aggregation:
+ * {@code DOWN > DEGRADED > UP}.  If any indicator throws, that indicator is treated
+ * as {@link Status#DOWN} with the exception message included in the alarm message.
+ *
+ * <p>Register {@code healthPv::tick} as a tick listener on the registry so that health
+ * status is refreshed on every poll interval:
+ * <pre>{@code
+ * HealthPv healthPv = new HealthPv(registry, prefix + ".health", indicators);
+ * registry.registerTickListener(healthPv::tick);
+ * }</pre>
  *
  * <p>This class is package-internal; use {@link org.phoebus.pva.micrometer.PvaServiceBinder}
  * to register health indicators.
@@ -52,76 +48,65 @@ public final class HealthPv {
 
     private static final Logger logger = Logger.getLogger(HealthPv.class.getName());
 
-    private final String pvName;
+    private final ServerPV serverPV;
     private final List<HealthIndicator> indicators;
 
     /** Mutable structure updated in-place on every tick. */
-    private PVAStructure data;
+    private final PVAStructure data;
 
     /** Cached field references for efficient in-place updates. */
-    private PVAString statusField;
-    private PVAString messageField;
-    private PVAAlarm alarmField;
+    private final PVAString valueField;
+    private final PVAAlarm alarmField;
 
     /**
-     * Creates a {@code HealthPv}.
+     * Creates a {@code HealthPv}, immediately performing an initial health check.
      *
-     * @param prefix     service prefix used to derive the PV name ({@code <prefix>.health})
-     * @param indicators snapshot list of indicators to aggregate (must be non-empty)
+     * <p>The PVA channel is created via {@code registry.createRawPv()} and an initial
+     * {@link #tick()} is performed so clients see the current health on first connect.
+     * Register {@code healthPv::tick} as a tick listener to keep the channel updated.
+     *
+     * @param registry   registry used to create and track the PVA channel
+     * @param pvName     PVA channel name, e.g. {@code "<prefix>.health"}
+     * @param indicators snapshot list of health indicators to aggregate (must be non-empty)
      */
-    public HealthPv(String prefix, List<HealthIndicator> indicators) {
-        this.pvName = prefix + ".health";
+    public HealthPv(PvaMeterRegistry registry, String pvName, List<HealthIndicator> indicators) {
         this.indicators = indicators;
+        this.data = buildInitialData();
+        this.valueField = data.get("value");
+        this.alarmField = data.get("alarm");
+        this.serverPV = registry.createRawPv(pvName, data);
+        tick();
     }
 
     /**
-     * Creates the PVA channel and registers a tick listener on the registry.
-     * The channel is populated immediately with an initial health check.
+     * Polls all indicators, aggregates the results using worst-wins logic, and pushes
+     * the updated status to connected PVA clients.
      *
-     * @param registry the registry whose poll loop will drive health updates
+     * <p>Called by the poll loop via a tick listener registered in
+     * {@link org.phoebus.pva.micrometer.PvaServiceBinder#bindTo}.
      */
-    public void createPv(PvaMeterRegistry registry) {
-        data = buildData();
-        statusField = data.get("status");
-        messageField = data.get("message");
-        alarmField = data.get("alarm");
-
-        ServerPV serverPV = registry.createRawPv(pvName, data);
-
-        // Push an immediate update so clients see the current health on connect.
-        updateData();
+    public void tick() {
+        Health aggregate = aggregate();
+        valueField.set(aggregate.status().name());
+        alarmField.set(toSeverity(aggregate.status()), AlarmStatus.NO_STATUS, aggregate.message());
+        PVATimeStamp.set(data, Instant.now());
         try {
             serverPV.update(data);
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Failed to publish initial health PV '" + pvName + "'", e);
+            logger.log(Level.WARNING, "Failed to update health PV", e);
         }
-
-        // Register for subsequent poll ticks.
-        registry.registerTickListener(() -> {
-            updateData();
-            try {
-                serverPV.update(data);
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Failed to update health PV '" + pvName + "'", e);
-            }
-        });
     }
 
     /**
-     * Aggregates all indicator results, updates the PVA structure fields in-place,
-     * and stamps the current wall-clock time.
+     * Closes the underlying PVA channel, notifying connected clients.
      */
-    private void updateData() {
-        Health aggregate = aggregate();
-        statusField.set(aggregate.status().name());
-        messageField.set(aggregate.message());
-        alarmField.set(toSeverity(aggregate.status()), AlarmStatus.NO_STATUS, "");
-        PVATimeStamp.set(data, Instant.now());
+    public void close() {
+        serverPV.close();
     }
 
     /**
      * Runs every indicator and returns the aggregated {@link Health}.
-     * The worst status wins; messages are joined with {@code "; "}.
+     * The worst status wins; non-empty messages are joined with {@code "; "}.
      */
     private Health aggregate() {
         Status worst = Status.UP;
@@ -145,6 +130,10 @@ public final class HealthPv {
         return new Health(worst, messages.toString());
     }
 
+    /**
+     * Maps a {@link Status} to its EPICS alarm severity.
+     * {@code UP → 0 (NO_ALARM)}, {@code DEGRADED → 1 (MINOR)}, {@code DOWN → 2 (MAJOR)}.
+     */
     private static AlarmSeverity toSeverity(Status status) {
         return switch (status) {
             case UP       -> AlarmSeverity.NO_ALARM;
@@ -153,10 +142,9 @@ public final class HealthPv {
         };
     }
 
-    private static PVAStructure buildData() {
-        return new PVAStructure("", "service:Health:1.0",
-                new PVAString("status", Status.UP.name()),
-                new PVAString("message", ""),
+    private static PVAStructure buildInitialData() {
+        return new PVAStructure("", "epics:nt/NTScalar:1.0",
+                new PVAString("value", Status.UP.name()),
                 new PVAAlarm(),
                 new PVATimeStamp());
     }
