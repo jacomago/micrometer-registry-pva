@@ -39,6 +39,7 @@ import org.phoebus.pva.micrometer.internal.PvaMeter;
 import org.phoebus.pva.micrometer.internal.PvaMicrometerCounter;
 import org.phoebus.pva.micrometer.internal.PvaTimeGauge;
 import org.phoebus.pva.micrometer.internal.PvaTimer;
+import org.mockito.Mockito;
 
 import java.time.Duration;
 import java.util.Collections;
@@ -47,8 +48,12 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.util.function.DoubleSupplier;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 
 /**
  * Tests for {@link PvaMeterRegistry} covering scalar meter PV wrappers.
@@ -777,6 +782,767 @@ class PvaMeterRegistryTest {
                 PVASettings.EPICS_PVA_AUTO_ADDR_LIST = savedAutoAddrList;
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // FunctionCounter — exception in count function
+    // -------------------------------------------------------------------------
+
+    @Test
+    void functionCounter_throwingCountFunctionSetsInvalidAlarm() throws Exception {
+        // A count function that always throws triggers the catch block in updatePv().
+        FunctionCounter fc = FunctionCounter
+                .builder("test.fn.counter.throw", new Object(), obj -> {
+                    throw new RuntimeException("count error");
+                })
+                .register(registry);
+
+        PvaFunctionCounter<?> pvaFc = (PvaFunctionCounter<?>) fc;
+        PVAScalar<PVADouble> data = pvaFc.getInitialData();
+        ServerPV serverPV = registryServerPv("test.fn.counter.throw");
+
+        pvaFc.updatePv(serverPV);
+
+        PVAAlarm alarm = data.get("alarm");
+        assertEquals(AlarmSeverity.INVALID, alarm.alarmSeverity(),
+                "Alarm must be INVALID when the count function throws");
+    }
+
+    // -------------------------------------------------------------------------
+    // FunctionTimer — null-ref (weak-ref cleared) sets INVALID alarm
+    // -------------------------------------------------------------------------
+
+    @Test
+    void functionTimer_nullRefSetsInvalidAlarm() throws Exception {
+        // Passing null as the observed object means ref.get() returns null,
+        // so count() and totalTime() both return NaN.
+        FunctionTimer ft = FunctionTimer
+                .builder("test.fn.timer.nullref", (Object) null,
+                        obj -> 1L,
+                        obj -> 1.0,
+                        TimeUnit.SECONDS)
+                .register(registry);
+
+        PvaFunctionTimer<?> pvaFt = (PvaFunctionTimer<?>) ft;
+        PVAStructure data = pvaFt.getInitialData();
+        ServerPV serverPV = registryServerPv("test.fn.timer.nullref");
+
+        // Verify count() and totalTime() return NaN when ref is null.
+        assertTrue(Double.isNaN(ft.count()), "count() must be NaN when ref is cleared");
+        assertTrue(Double.isNaN(ft.totalTime(TimeUnit.SECONDS)),
+                "totalTime() must be NaN when ref is cleared");
+
+        pvaFt.updatePv(serverPV);
+
+        PVAAlarm alarm = data.get("alarm");
+        assertEquals(AlarmSeverity.INVALID, alarm.alarmSeverity(),
+                "Alarm must be INVALID when the weak reference has been cleared");
+    }
+
+    // -------------------------------------------------------------------------
+    // TimeGauge — null-ref sets INVALID alarm
+    // -------------------------------------------------------------------------
+
+    @Test
+    void timeGauge_nullRefSetsInvalidAlarm() throws Exception {
+        // Passing null as the observed object means value() returns NaN.
+        TimeGauge tg = TimeGauge
+                .builder("test.timegauge.nullref", (Object) null, TimeUnit.SECONDS, obj -> 1.0)
+                .register(registry);
+
+        PvaTimeGauge<?> pvaTg = (PvaTimeGauge<?>) tg;
+        PVAScalar<PVADouble> data = pvaTg.getInitialData();
+        ServerPV serverPV = registryServerPv("test.timegauge.nullref");
+
+        pvaTg.updatePv(serverPV);
+
+        PVAAlarm alarm = data.get("alarm");
+        assertEquals(AlarmSeverity.INVALID, alarm.alarmSeverity(),
+                "Alarm must be INVALID when the TimeGauge ref is cleared");
+    }
+
+    // -------------------------------------------------------------------------
+    // LongTaskTimer — max(), takeSnapshot(), and SampleImpl.duration() after stop
+    // -------------------------------------------------------------------------
+
+    @Test
+    void longTaskTimer_maxWithActiveTasks() {
+        LongTaskTimer ltt = LongTaskTimer.builder("test.ltt.max").register(registry);
+
+        LongTaskTimer.Sample s = ltt.start();
+        // max must be >= 0 with at least one active task.
+        assertTrue(ltt.max(TimeUnit.SECONDS) >= 0.0,
+                "max() must return a non-negative value while a task is active");
+        s.stop();
+        // After all tasks stop, max() should return 0.
+        assertEquals(0.0, ltt.max(TimeUnit.SECONDS), 1e-9,
+                "max() must be 0 when no tasks are active");
+    }
+
+    @Test
+    void longTaskTimer_takeSnapshotReflectsActiveTasks() {
+        LongTaskTimer ltt = LongTaskTimer.builder("test.ltt.snapshot").register(registry);
+
+        LongTaskTimer.Sample s = ltt.start();
+        io.micrometer.core.instrument.distribution.HistogramSnapshot snapshot = ltt.takeSnapshot();
+
+        assertEquals(1L, snapshot.count(),
+                "takeSnapshot().count() must equal the number of active tasks");
+        assertTrue(snapshot.total() >= 0.0,
+                "takeSnapshot().total() must be non-negative");
+        s.stop();
+    }
+
+    @Test
+    void longTaskTimer_sampleDurationAfterStop_returnsZero() {
+        LongTaskTimer ltt = LongTaskTimer.builder("test.ltt.sample.stop").register(registry);
+
+        LongTaskTimer.Sample s = ltt.start();
+        s.stop();
+
+        // After stop(), the sample is no longer in the active map, so duration()
+        // must return 0 rather than a negative or stale value.
+        assertEquals(0.0, s.duration(TimeUnit.SECONDS), 1e-9,
+                "Sample.duration() must return 0.0 after the sample has been stopped");
+    }
+
+    // -------------------------------------------------------------------------
+    // Custom Meter — throwing measurement sets INVALID alarm
+    // -------------------------------------------------------------------------
+
+    @Test
+    void customMeter_throwingMeasurementSetsInvalidAlarm() throws Exception {
+        Meter meter = Meter.builder("test.custom.meter.throw", Meter.Type.OTHER,
+                        Collections.singletonList(
+                                new Measurement((DoubleSupplier) () -> {
+                                    throw new RuntimeException("measurement error");
+                                }, Statistic.VALUE)))
+                .register(registry);
+
+        PvaMeter pvaMeter = (PvaMeter) meter;
+        PVAStructure data = pvaMeter.getInitialData();
+        ServerPV serverPV = registryServerPv("test.custom.meter.throw");
+
+        pvaMeter.updatePv(serverPV);
+
+        PVAAlarm alarm = data.get("alarm");
+        assertEquals(AlarmSeverity.INVALID, alarm.alarmSeverity(),
+                "Alarm must be INVALID when a measurement supplier throws");
+    }
+
+    // -------------------------------------------------------------------------
+    // Registry poll — exception in tick listener is swallowed
+    // -------------------------------------------------------------------------
+
+    @Test
+    void registry_exceptionInTickListenerIsSwallowed() throws Exception {
+        // Use a very short step so the poll loop fires quickly.
+        PvaMeterRegistryConfig shortStepConfig = new PvaMeterRegistryConfig() {
+            @Override public String get(String key) { return null; }
+            @Override public Duration step() { return Duration.ofMillis(50); }
+        };
+
+        PvaMeterRegistry shortRegistry = new PvaMeterRegistry(shortStepConfig, Clock.SYSTEM);
+        try {
+            // Register a tick listener that always throws.
+            shortRegistry.registerTickListener(() -> {
+                throw new RuntimeException("listener bang");
+            });
+
+            // Allow several poll ticks — the registry must not crash.
+            Thread.sleep(300);
+            // If we reach here without an exception, the test passes.
+        } finally {
+            shortRegistry.close();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Registry close — InterruptedException in awaitTermination
+    // -------------------------------------------------------------------------
+
+    @Test
+    void registry_closeWithPreInterruptedThread_doesNotThrow() throws Exception {
+        // Use a mock PVAServer so close() does not perform blocking network operations
+        // that could consume the interrupt flag.
+        PVAServer mockServer = Mockito.mock(PVAServer.class);
+        Mockito.when(mockServer.createPV(any(String.class), any(PVAStructure.class)))
+                .thenReturn(Mockito.mock(ServerPV.class));
+
+        // Register a tick listener that blocks so awaitTermination() actually waits,
+        // giving the InterruptedException path a chance to trigger.
+        java.util.concurrent.CountDownLatch taskStarted = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseTask = new java.util.concurrent.CountDownLatch(1);
+
+        PvaMeterRegistryConfig shortStepConfig = new PvaMeterRegistryConfig() {
+            @Override public String get(String key) { return null; }
+            @Override public Duration step() { return Duration.ofMillis(20); }
+        };
+
+        PvaMeterRegistry reg = new PvaMeterRegistry(shortStepConfig, Clock.SYSTEM, mockServer);
+        reg.registerTickListener(() -> {
+            taskStarted.countDown();
+            try { releaseTask.await(); } catch (InterruptedException ignored) {}
+        });
+
+        // Wait for the blocking listener to start, then interrupt the calling thread
+        // and call close() while the executor task is still running.
+        taskStarted.await(5, TimeUnit.SECONDS);
+        Thread.currentThread().interrupt();
+        try {
+            reg.close(); // must not throw; InterruptedException is caught internally
+        } finally {
+            releaseTask.countDown();
+            Thread.interrupted(); // clear any residual interrupt flag
+        }
+        // If we reach here without exception, the test passes.
+    }
+
+    // -------------------------------------------------------------------------
+    // Registry close — exception during ServerPV.close() is swallowed
+    // -------------------------------------------------------------------------
+
+    @Test
+    void registry_closeWithThrowingServerPv_doesNotThrow() throws Exception {
+        PVAServer mockServer = Mockito.mock(PVAServer.class);
+        ServerPV mockPv = Mockito.mock(ServerPV.class);
+
+        // createPV() returns our mock PV; close() on the mock will throw.
+        Mockito.when(mockServer.createPV(any(String.class), any(PVAStructure.class))).thenReturn(mockPv);
+        doThrow(new RuntimeException("close failed")).when(mockPv).close();
+
+        PvaMeterRegistry reg = new PvaMeterRegistry(TEST_CONFIG, Clock.SYSTEM, mockServer);
+        Gauge.builder("test.mock.gauge", () -> 1.0).register(reg);
+
+        // close() must not propagate the RuntimeException from mockPv.close().
+        reg.close();
+    }
+
+    // -------------------------------------------------------------------------
+    // Registry close — exception during raw ServerPV.close() is swallowed
+    // -------------------------------------------------------------------------
+
+    @Test
+    void registry_closeWithThrowingRawPv_doesNotThrow() throws Exception {
+        PVAServer mockServer = Mockito.mock(PVAServer.class);
+        ServerPV mockPv = Mockito.mock(ServerPV.class);
+
+        // createPV() returns a throwing mock PV for both meter and raw channels.
+        Mockito.when(mockServer.createPV(any(String.class), any(PVAStructure.class))).thenReturn(mockPv);
+        doThrow(new RuntimeException("raw close failed")).when(mockPv).close();
+
+        PvaMeterRegistry reg = new PvaMeterRegistry(TEST_CONFIG, Clock.SYSTEM, mockServer);
+        // createRawPv() stores the PV in rawPvs; close() iterates and closes it.
+        reg.createRawPv("test.raw.pv",
+                new org.epics.pva.data.PVAStructure("", "test:1.0",
+                        new org.epics.pva.data.PVAString("value", "")));
+
+        // Must not throw even though close() on the raw PV throws.
+        reg.close();
+    }
+
+    // -------------------------------------------------------------------------
+    // registerPv — createPV() throws → RuntimeException propagated, name cleaned up
+    // -------------------------------------------------------------------------
+
+    @Test
+    void registry_registerPvFailureUnregistersName() throws Exception {
+        PVAServer mockServer = Mockito.mock(PVAServer.class);
+        Mockito.when(mockServer.createPV(any(String.class), any(PVAStructure.class)))
+                .thenThrow(new RuntimeException("PVAServer error"));
+
+        PvaMeterRegistry reg = new PvaMeterRegistry(TEST_CONFIG, Clock.SYSTEM, mockServer);
+        try {
+            // First registration attempt must throw a RuntimeException.
+            assertThrows(RuntimeException.class,
+                    () -> Gauge.builder("test.register.fail", () -> 1.0).register(reg));
+
+            // The PV name must have been removed from the registry so a second
+            // attempt with the same name does not fail with a collision error.
+            // (It will still fail because the mock throws, but NOT with
+            // IllegalArgumentException about a duplicate name.)
+            RuntimeException ex = assertThrows(RuntimeException.class,
+                    () -> Gauge.builder("test.register.fail", () -> 2.0).register(reg));
+            assertTrue(!(ex instanceof IllegalArgumentException),
+                    "Second registration must not fail with a duplicate-name error; got: " + ex);
+        } finally {
+            reg.close();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // createRawPv — createPV() throws → RuntimeException propagated
+    // -------------------------------------------------------------------------
+
+    @Test
+    void registry_createRawPvFailureThrows() throws Exception {
+        PVAServer mockServer = Mockito.mock(PVAServer.class);
+        Mockito.when(mockServer.createPV(any(String.class), any(PVAStructure.class)))
+                .thenThrow(new RuntimeException("PVAServer error"));
+
+        PvaMeterRegistry reg = new PvaMeterRegistry(TEST_CONFIG, Clock.SYSTEM, mockServer);
+        try {
+            assertThrows(RuntimeException.class,
+                    () -> reg.createRawPv("raw.fail",
+                            new org.epics.pva.data.PVAStructure("", "test:1.0",
+                                    new org.epics.pva.data.PVAString("value", ""))));
+        } finally {
+            reg.close();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Registry close — exception in pvaServer.close() is swallowed (ownsServer=true)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void registry_pvaServerCloseExceptionIsSwallowed() {
+        // When the registry owns the PVAServer (2-arg constructor), close() calls
+        // pvaServer.close() in a try/catch. Use MockedConstruction so the mock is
+        // created with ownsServer=true and configured to throw on close().
+        try (var mc = Mockito.mockConstruction(PVAServer.class, (mock, ctx) -> {
+            doThrow(new RuntimeException("server close failed")).when(mock).close();
+        })) {
+            PvaMeterRegistry reg = new PvaMeterRegistry(TEST_CONFIG, Clock.SYSTEM);
+            reg.close(); // must not propagate RuntimeException from pvaServer.close()
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // createServer — constructor throws → RuntimeException propagated
+    // -------------------------------------------------------------------------
+
+    @Test
+    void registry_createServerFailureThrows() {
+        // Use Mockito's MockedConstruction: the MockInitializer prepare() runs immediately
+        // after the mock object is created. Throwing from prepare() propagates the exception
+        // back to the call site of new PVAServer(), exercising the catch block in createServer().
+        try (var mc = Mockito.mockConstruction(PVAServer.class,
+                (mock, ctx) -> { throw new RuntimeException("server start failed"); })) {
+            assertThrows(RuntimeException.class,
+                    () -> new PvaMeterRegistry(TEST_CONFIG, Clock.SYSTEM));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // measure() methods — ensure each meter type's measure() is exercised
+    // -------------------------------------------------------------------------
+
+    @Test
+    void gauge_measureReturnsCurrentValue() {
+        double[] source = {42.0};
+        Gauge gauge = Gauge.builder("test.gauge.measure", source, a -> a[0]).register(registry);
+        PvaGauge<?> pvaGauge = (PvaGauge<?>) gauge;
+
+        assertEquals(42.0, pvaGauge.measure().iterator().next().getValue(), 1e-9,
+                "measure() must return the current gauge value");
+    }
+
+    @Test
+    void counter_measureReturnsCumulativeCount() {
+        Counter counter = Counter.builder("test.counter.measure").register(registry);
+        counter.increment(5.0);
+        PvaMicrometerCounter pvaCounter = (PvaMicrometerCounter) counter;
+
+        assertEquals(5.0, pvaCounter.measure().iterator().next().getValue(), 1e-9,
+                "measure() must return the current cumulative count");
+    }
+
+    @Test
+    void functionCounter_measureReturnsCurrentCount() {
+        AtomicLong src = new AtomicLong(7);
+        FunctionCounter fc = FunctionCounter
+                .builder("test.fn.counter.measure", src, AtomicLong::doubleValue)
+                .register(registry);
+        PvaFunctionCounter<?> pvaFc = (PvaFunctionCounter<?>) fc;
+
+        assertEquals(7.0, pvaFc.measure().iterator().next().getValue(), 1e-9,
+                "measure() must return the current function counter value");
+    }
+
+    @Test
+    void functionCounter_nullRefSetsInvalidAlarm() throws Exception {
+        // When the observed object is null, count() returns NaN — covers isNaN branch in updatePv().
+        FunctionCounter fc = FunctionCounter
+                .builder("test.fn.counter.nullref", (Object) null, obj -> 1.0)
+                .register(registry);
+
+        PvaFunctionCounter<?> pvaFc = (PvaFunctionCounter<?>) fc;
+        PVAScalar<PVADouble> data = pvaFc.getInitialData();
+        ServerPV serverPV = registryServerPv("test.fn.counter.nullref");
+
+        assertTrue(Double.isNaN(fc.count()), "count() must return NaN when the weak ref is null");
+
+        pvaFc.updatePv(serverPV);
+
+        PVAAlarm alarm = data.get("alarm");
+        assertEquals(AlarmSeverity.INVALID, alarm.alarmSeverity(),
+                "Alarm must be INVALID when count() returns NaN");
+    }
+
+    @Test
+    void functionTimer_measureReturnsCountAndTotalTime() {
+        AtomicLong completions = new AtomicLong(3);
+        AtomicLong totalMs = new AtomicLong(600);
+        FunctionTimer ft = FunctionTimer
+                .builder("test.fn.timer.measure", completions,
+                        AtomicLong::get, obj -> (double) totalMs.get(), TimeUnit.MILLISECONDS)
+                .register(registry);
+        PvaFunctionTimer<?> pvaFt = (PvaFunctionTimer<?>) ft;
+
+        int count = 0;
+        for (Measurement m : pvaFt.measure()) {
+            assertTrue(m.getValue() >= 0.0 || Double.isNaN(m.getValue()));
+            count++;
+        }
+        assertEquals(2, count, "measure() must return 2 measurements (COUNT and TOTAL_TIME)");
+    }
+
+    @Test
+    void functionTimer_baseTimeUnitIsSeconds() {
+        AtomicLong completions = new AtomicLong(0);
+        FunctionTimer ft = FunctionTimer
+                .builder("test.fn.timer.base", completions,
+                        AtomicLong::get, obj -> 0.0, TimeUnit.SECONDS)
+                .register(registry);
+        PvaFunctionTimer<?> pvaFt = (PvaFunctionTimer<?>) ft;
+        assertEquals(TimeUnit.SECONDS, pvaFt.baseTimeUnit());
+    }
+
+    @Test
+    void timeGauge_measureReturnsValue() {
+        long[] srcMs = {2000L};
+        TimeGauge tg = TimeGauge
+                .builder("test.tg.measure", srcMs, TimeUnit.MILLISECONDS, a -> a[0])
+                .register(registry);
+        PvaTimeGauge<?> pvaTg = (PvaTimeGauge<?>) tg;
+
+        assertTrue(pvaTg.measure().iterator().next().getValue() >= 0.0,
+                "measure() must return a non-negative value");
+    }
+
+    @Test
+    void timeGauge_baseTimeUnitReflectsUnit() {
+        long[] srcMs = {1000L};
+        TimeGauge tg = TimeGauge
+                .builder("test.tg.base", srcMs, TimeUnit.MILLISECONDS, a -> a[0])
+                .register(registry);
+        PvaTimeGauge<?> pvaTg = (PvaTimeGauge<?>) tg;
+
+        assertEquals(TimeUnit.MILLISECONDS, pvaTg.baseTimeUnit(),
+                "baseTimeUnit() must reflect the unit declared at construction");
+    }
+
+    @Test
+    void timeGauge_valueNoArgReturnsInBaseUnit() {
+        long[] srcMs = {3000L}; // 3000 ms
+        TimeGauge tg = TimeGauge
+                .builder("test.tg.value.noarg", srcMs, TimeUnit.MILLISECONDS, a -> a[0])
+                .register(registry);
+        PvaTimeGauge<?> pvaTg = (PvaTimeGauge<?>) tg;
+
+        // value() with no args returns in the declared base unit (MILLISECONDS)
+        assertEquals(3000.0, pvaTg.value(), 1e-6,
+                "value() must return the raw value in the declared base unit");
+    }
+
+    @Test
+    void timeGauge_throwingFunctionSetsInvalidAlarm() throws Exception {
+        // A value function that throws covers the catch block in updatePv().
+        Object nonNull = new Object();
+        TimeGauge tg = TimeGauge
+                .builder("test.tg.throw", nonNull, TimeUnit.SECONDS, obj -> {
+                    throw new RuntimeException("tg error");
+                })
+                .register(registry);
+
+        PvaTimeGauge<?> pvaTg = (PvaTimeGauge<?>) tg;
+        PVAScalar<PVADouble> data = pvaTg.getInitialData();
+        ServerPV serverPV = registryServerPv("test.tg.throw");
+
+        pvaTg.updatePv(serverPV);
+
+        PVAAlarm alarm = data.get("alarm");
+        assertEquals(AlarmSeverity.INVALID, alarm.alarmSeverity(),
+                "Alarm must be INVALID when the value function throws");
+    }
+
+    @Test
+    void longTaskTimer_measureReturnsActiveTasksAndDuration() {
+        LongTaskTimer ltt = LongTaskTimer.builder("test.ltt.measure").register(registry);
+        PvaLongTaskTimer pvaLtt = (PvaLongTaskTimer) ltt;
+
+        LongTaskTimer.Sample s = ltt.start();
+        int count = 0;
+        for (Measurement m : pvaLtt.measure()) {
+            assertTrue(m.getValue() >= 0.0, "Measurement value must be non-negative");
+            count++;
+        }
+        assertEquals(2, count, "measure() must return 2 measurements (ACTIVE_TASKS and DURATION)");
+        s.stop();
+    }
+
+    @Test
+    void longTaskTimer_baseTimeUnitIsSeconds() {
+        LongTaskTimer ltt = LongTaskTimer.builder("test.ltt.base").register(registry);
+        PvaLongTaskTimer pvaLtt = (PvaLongTaskTimer) ltt;
+        assertEquals(TimeUnit.SECONDS, pvaLtt.baseTimeUnit());
+    }
+
+    @Test
+    void longTaskTimer_sampleDurationWhileActive() {
+        LongTaskTimer ltt = LongTaskTimer.builder("test.ltt.sample.active").register(registry);
+
+        LongTaskTimer.Sample s = ltt.start();
+        // duration() while still running must be non-negative (covers the "taskStart != null" branch)
+        double duration = s.duration(TimeUnit.MILLISECONDS);
+        assertTrue(duration >= 0.0, "Sample.duration() while active must be non-negative");
+        s.stop();
+    }
+
+    @Test
+    void longTaskTimer_maxWithTwoActiveTasks() {
+        LongTaskTimer ltt = LongTaskTimer.builder("test.ltt.max2").register(registry);
+
+        LongTaskTimer.Sample s1 = ltt.start();
+        LongTaskTimer.Sample s2 = ltt.start();
+
+        // With 2 active tasks started at different times, iterating both covers
+        // the true AND false branches of 'if (elapsed > maxNanos)' in max().
+        double max = ltt.max(TimeUnit.NANOSECONDS);
+        assertTrue(max >= 0.0, "max() must be non-negative with active tasks");
+
+        s1.stop();
+        s2.stop();
+    }
+
+    @Test
+    void timer_measureReturnsValues() {
+        Timer timer = Timer.builder("test.timer.measure").register(registry);
+        timer.record(Duration.ofSeconds(1));
+        PvaTimer pvaTimer = (PvaTimer) timer;
+
+        int count = 0;
+        for (Measurement m : pvaTimer.measure()) {
+            count++;
+        }
+        assertTrue(count >= 2, "measure() must return at least 2 measurements");
+    }
+
+    @Test
+    void timer_recordSmallerValueDoesNotUpdateMax() {
+        Timer timer = Timer.builder("test.timer.cas").register(registry);
+        timer.record(Duration.ofSeconds(3)); // sets max to 3 s
+        timer.record(Duration.ofSeconds(1)); // 1 < 3 → covers 'amount <= prev' branch in recordNonNegative
+
+        assertEquals(3.0, timer.max(TimeUnit.SECONDS), 1e-6,
+                "Recording a smaller value must not decrease max");
+    }
+
+    @Test
+    void distributionSummary_measureReturnsValues() {
+        DistributionSummary summary = DistributionSummary.builder("test.summary.measure")
+                .register(registry);
+        summary.record(10.0);
+        PvaDistributionSummary pvaSummary = (PvaDistributionSummary) summary;
+
+        int count = 0;
+        for (Measurement m : pvaSummary.measure()) {
+            count++;
+        }
+        assertTrue(count >= 2, "measure() must return at least 2 measurements");
+    }
+
+    @Test
+    void distributionSummary_recordSmallerValueDoesNotUpdateMax() {
+        DistributionSummary summary = DistributionSummary.builder("test.summary.cas")
+                .register(registry);
+        summary.record(30.0); // sets max to 30
+        summary.record(10.0); // 10 < 30 → covers 'amount <= prev' branch in recordNonNegative
+
+        assertEquals(30.0, summary.max(), 1e-9,
+                "Recording a smaller value must not decrease max");
+    }
+
+    @Test
+    void customMeter_measureReturnsMeasurements() {
+        double[] source = {7.0};
+        Meter meter = Meter.builder("test.custom.measure2", Meter.Type.OTHER,
+                        Collections.singletonList(
+                                new Measurement(() -> source[0], Statistic.VALUE)))
+                .register(registry);
+        PvaMeter pvaMeter = (PvaMeter) meter;
+
+        assertEquals(7.0, pvaMeter.measure().iterator().next().getValue(), 1e-9,
+                "measure() must return the measurement value");
+    }
+
+    // -------------------------------------------------------------------------
+    // Null-message exception variants — cover the "e.getMessage() == null" branch
+    // in the catch-block ternary for each reachable catch block
+    // -------------------------------------------------------------------------
+
+    @Test
+    void gauge_throwingSupplierWithNullMessageSetsInvalidAlarm() throws Exception {
+        // RuntimeException with no message → getMessage() returns null → covers the
+        // false branch of 'msg = e.getMessage() != null ? ... : "Error reading gauge value"'.
+        Object nonNull = new Object();
+        Gauge gauge = Gauge.builder("test.gauge.throw.nullmsg", nonNull, obj -> {
+            throw new RuntimeException(); // no message
+        }).register(registry);
+
+        PvaGauge<?> pvaGauge = (PvaGauge<?>) gauge;
+        ServerPV serverPV = registryServerPv("test.gauge.throw.nullmsg");
+        pvaGauge.updatePv(serverPV);
+
+        assertEquals(AlarmSeverity.INVALID,
+                ((PVAAlarm) pvaGauge.getInitialData().get("alarm")).alarmSeverity(),
+                "Alarm must be INVALID when supplier throws with no message");
+    }
+
+    @Test
+    void timeGauge_throwingFunctionWithNullMessageSetsInvalidAlarm() throws Exception {
+        Object nonNull = new Object();
+        TimeGauge tg = TimeGauge
+                .builder("test.tg.throw.nullmsg", nonNull, TimeUnit.SECONDS, obj -> {
+                    throw new RuntimeException(); // no message
+                })
+                .register(registry);
+
+        PvaTimeGauge<?> pvaTg = (PvaTimeGauge<?>) tg;
+        ServerPV serverPV = registryServerPv("test.tg.throw.nullmsg");
+        pvaTg.updatePv(serverPV);
+
+        assertEquals(AlarmSeverity.INVALID,
+                ((PVAAlarm) pvaTg.getInitialData().get("alarm")).alarmSeverity(),
+                "Alarm must be INVALID when time-gauge function throws with no message");
+    }
+
+    @Test
+    void functionCounter_throwingFunctionWithNullMessageSetsInvalidAlarm() throws Exception {
+        FunctionCounter fc = FunctionCounter
+                .builder("test.fn.counter.throw.nullmsg", new Object(), obj -> {
+                    throw new RuntimeException(); // no message
+                })
+                .register(registry);
+
+        PvaFunctionCounter<?> pvaFc = (PvaFunctionCounter<?>) fc;
+        ServerPV serverPV = registryServerPv("test.fn.counter.throw.nullmsg");
+        pvaFc.updatePv(serverPV);
+
+        assertEquals(AlarmSeverity.INVALID,
+                ((PVAAlarm) pvaFc.getInitialData().get("alarm")).alarmSeverity(),
+                "Alarm must be INVALID when count function throws with no message");
+    }
+
+    // -------------------------------------------------------------------------
+    // FunctionTimer — additional branches: totalTime NaN, catch block, null message
+    // -------------------------------------------------------------------------
+
+    @Test
+    void functionTimer_totalTimeNaNSetsInvalidAlarm() throws Exception {
+        // count() returns a real number but totalTime() returns NaN — covers the
+        // "left false, right true" branch of the 'isNaN(count) || isNaN(totalTime)' condition.
+        FunctionTimer ft = FunctionTimer
+                .builder("test.fn.timer.totnan",
+                        new Object(),
+                        obj -> 1L,                 // count is valid (non-NaN)
+                        obj -> Double.NaN,          // totalTime explicitly returns NaN
+                        TimeUnit.SECONDS)
+                .register(registry);
+
+        PvaFunctionTimer<?> pvaFt = (PvaFunctionTimer<?>) ft;
+        PVAStructure data = pvaFt.getInitialData();
+        ServerPV serverPV = registryServerPv("test.fn.timer.totnan");
+
+        pvaFt.updatePv(serverPV);
+
+        assertEquals(AlarmSeverity.INVALID,
+                ((PVAAlarm) data.get("alarm")).alarmSeverity(),
+                "Alarm must be INVALID when totalTime() returns NaN");
+    }
+
+    @Test
+    void functionTimer_throwingCountFunctionSetsInvalidAlarm() throws Exception {
+        // count function throws → exception is caught in updatePv().
+        FunctionTimer ft = FunctionTimer
+                .builder("test.fn.timer.throw",
+                        new Object(),
+                        obj -> { throw new RuntimeException("ft count error"); },
+                        obj -> 0.0,
+                        TimeUnit.SECONDS)
+                .register(registry);
+
+        PvaFunctionTimer<?> pvaFt = (PvaFunctionTimer<?>) ft;
+        PVAStructure data = pvaFt.getInitialData();
+        ServerPV serverPV = registryServerPv("test.fn.timer.throw");
+
+        pvaFt.updatePv(serverPV);
+
+        assertEquals(AlarmSeverity.INVALID,
+                ((PVAAlarm) data.get("alarm")).alarmSeverity(),
+                "Alarm must be INVALID when the count function throws");
+    }
+
+    @Test
+    void functionTimer_throwingCountFunctionWithNullMessageSetsInvalidAlarm() throws Exception {
+        // Throw with no message → covers the null-message ternary branch in the catch block.
+        FunctionTimer ft = FunctionTimer
+                .builder("test.fn.timer.throw.nullmsg",
+                        new Object(),
+                        obj -> { throw new RuntimeException(); }, // no message
+                        obj -> 0.0,
+                        TimeUnit.SECONDS)
+                .register(registry);
+
+        PvaFunctionTimer<?> pvaFt = (PvaFunctionTimer<?>) ft;
+        ServerPV serverPV = registryServerPv("test.fn.timer.throw.nullmsg");
+        pvaFt.updatePv(serverPV);
+
+        assertEquals(AlarmSeverity.INVALID,
+                ((PVAAlarm) pvaFt.getInitialData().get("alarm")).alarmSeverity(),
+                "Alarm must be INVALID when function throws with no message");
+    }
+
+    // -------------------------------------------------------------------------
+    // PvaMeter — null-message catch branch
+    // -------------------------------------------------------------------------
+
+    @Test
+    void customMeter_throwingMeasurementWithNullMessageSetsInvalidAlarm() throws Exception {
+        Meter meter = Meter.builder("test.custom.throw.nullmsg", Meter.Type.OTHER,
+                        Collections.singletonList(
+                                new Measurement((DoubleSupplier) () -> {
+                                    throw new RuntimeException(); // no message
+                                }, Statistic.VALUE)))
+                .register(registry);
+
+        PvaMeter pvaMeter = (PvaMeter) meter;
+        ServerPV serverPV = registryServerPv("test.custom.throw.nullmsg");
+        pvaMeter.updatePv(serverPV);
+
+        assertEquals(AlarmSeverity.INVALID,
+                ((PVAAlarm) pvaMeter.getInitialData().get("alarm")).alarmSeverity(),
+                "Alarm must be INVALID when measurement throws with no message");
+    }
+
+    // -------------------------------------------------------------------------
+    // Registry — meter removal triggers onMeterRemoved cleanup (lambda$new$1)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void registry_meterRemovalCleansUpServerPv() {
+        Gauge gauge = Gauge.builder("test.removal.gauge", () -> 1.0).register(registry);
+
+        assertNotNull(registry.serverPv("test.removal.gauge"),
+                "ServerPV must exist before removal");
+
+        // Removing the meter triggers the onMeterRemoved callback which closes and
+        // removes the ServerPV from the internal maps.
+        registry.remove(gauge);
+
+        assertNull(registry.serverPv("test.removal.gauge"),
+                "ServerPV must be absent after meter removal");
     }
 
     // -------------------------------------------------------------------------

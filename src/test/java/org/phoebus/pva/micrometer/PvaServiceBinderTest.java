@@ -15,7 +15,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.phoebus.pva.micrometer.Health.Status;
 
+import org.mockito.Mockito;
+
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -24,6 +27,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 
 /**
  * Tests for {@link PvaServiceBinder}, {@link Health}, and {@link HealthIndicator}.
@@ -408,6 +413,90 @@ class PvaServiceBinderTest {
                 PVASettings.EPICS_PVA_NAME_SERVERS = savedNameServers;
                 PVASettings.EPICS_PVA_AUTO_ADDR_LIST = savedAutoAddrList;
             }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // PvaServiceBinder — JVM metrics enabled (GC + thread + class-loader)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void binder_defaultMetricsBound_withGcAndThreadAndClassLoader() {
+        // Omitting the three withoutXxx() calls exercises the !excludeGcMetrics,
+        // !excludeThreadMetrics, and !excludeClassLoaderMetrics branches in bindTo().
+        PvaServiceBinder.forService("test.full.metrics")
+                .bindTo(registry);
+
+        // At least one JVM metric must have been registered.
+        assertTrue(registry.getMeters().size() > 0,
+                "bindTo() without suppressions must register at least some JVM metrics");
+    }
+
+    // -------------------------------------------------------------------------
+    // HealthPv — close() and tick() update-exception path
+    // -------------------------------------------------------------------------
+
+    @Test
+    void healthPv_closeDoesNotThrow() {
+        // Create a HealthPv directly (package-private, same package) and call close().
+        HealthPv healthPv = new HealthPv(registry, "test.hp.close", List.of(Health::up));
+        healthPv.close(); // must not throw
+    }
+
+    @Test
+    void healthPv_tickUpdateExceptionIsSwallowed() {
+        // Arrange a mock PVAServer whose ServerPV.update() always throws.
+        PVAServer mockServer = Mockito.mock(PVAServer.class);
+        ServerPV mockPv = Mockito.mock(ServerPV.class);
+        try {
+            doThrow(new RuntimeException("update failed")).when(mockPv).update(any());
+            Mockito.when(mockServer.createPV(any(String.class), any(PVAStructure.class)))
+                    .thenReturn(mockPv);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        PvaMeterRegistry reg = new PvaMeterRegistry(TEST_CONFIG, Clock.SYSTEM, mockServer);
+        try {
+            // Constructor calls tick() → serverPV.update() throws → must be swallowed.
+            HealthPv healthPv = new HealthPv(reg, "test.hp.tick.exc", List.of(Health::up));
+            // A subsequent explicit tick() must also not propagate the exception.
+            healthPv.tick();
+        } finally {
+            reg.close();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // InfoPv — close() and constructor update-exception path
+    // -------------------------------------------------------------------------
+
+    @Test
+    void infoPv_closeDoesNotThrow() {
+        // Create an InfoPv directly (package-private, same package) and call close().
+        InfoPv infoPv = new InfoPv(registry, "test.ip.close", "svc", "1.0", "2024-01-01", "abc");
+        infoPv.close(); // must not throw
+    }
+
+    @Test
+    void infoPv_constructorUpdateExceptionIsSwallowed() {
+        // Arrange a mock PVAServer whose ServerPV.update() always throws.
+        PVAServer mockServer = Mockito.mock(PVAServer.class);
+        ServerPV mockPv = Mockito.mock(ServerPV.class);
+        try {
+            doThrow(new RuntimeException("update failed")).when(mockPv).update(any());
+            Mockito.when(mockServer.createPV(any(String.class), any(PVAStructure.class)))
+                    .thenReturn(mockPv);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        PvaMeterRegistry reg = new PvaMeterRegistry(TEST_CONFIG, Clock.SYSTEM, mockServer);
+        try {
+            // Constructor calls serverPV.update() in a try/catch — must be swallowed.
+            InfoPv infoPv = new InfoPv(reg, "test.ip.upd.exc", "svc", "1.0", "2024-01-01", "abc");
+        } finally {
+            reg.close();
         }
     }
 
