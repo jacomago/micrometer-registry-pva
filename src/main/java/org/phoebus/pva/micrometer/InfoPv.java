@@ -1,7 +1,9 @@
 package org.phoebus.pva.micrometer;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonInclude.Include;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.epics.pva.data.PVAString;
 import org.epics.pva.data.PVAStructure;
 import org.epics.pva.data.nt.PVAAlarm;
@@ -85,18 +87,21 @@ final class InfoPv {
                 new PVATimeStamp());
     }
 
+    @JsonInclude(Include.NON_NULL)
+    record InfoDto(String name, String version, String buildDate,
+                   String gitCommit, String host) {}
+
     /**
      * Builds a JSON object string from the supplied fields, omitting any that are
      * {@code null}.  String escaping is handled by Jackson.
      */
     static String buildJson(String name, String version, String buildDate,
                             String gitCommit, String host) {
-        ObjectNode node = MAPPER.createObjectNode();
-        if (name      != null) node.put("name",      name);
-        if (version   != null) node.put("version",   version);
-        if (buildDate != null) node.put("buildDate", buildDate);
-        if (gitCommit != null) node.put("gitCommit", gitCommit);
-        if (host      != null) node.put("host",      host);
-        return node.toString();
+        try {
+            return MAPPER.writeValueAsString(new InfoDto(name, version, buildDate, gitCommit, host));
+        } catch (JsonProcessingException e) {
+            logger.log(Level.WARNING, "Failed to serialise info PV data", e);
+            return "{}";
+        }
     }
 }
