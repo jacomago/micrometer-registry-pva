@@ -36,6 +36,7 @@
         <micrometer.version>1.16.3</micrometer.version>
         <core-pva.version>4.7.3</core-pva.version>
         <junit.version>5.11.4</junit.version>
+        <mockito.version>5.17.0</mockito.version>
         <!-- Java baseline: must match Phoebus -->
         <java.version>17</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
@@ -81,6 +82,20 @@
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Mockito: mocking framework for unit tests -->
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <version>${mockito.version}</version>
             <scope>test</scope>
         </dependency>
 
@@ -207,6 +222,14 @@
                         <id>report</id>
                         <phase>verify</phase>
                         <goals><goal>report</goal></goals>
+                        <configuration>
+                            <!-- PvStructures contains only a factory method whose catch block
+                                 wraps PVAScalar.build() — that builder never throws in practice,
+                                 making the handler a permanently-dead code path. -->
+                            <excludes>
+                                <exclude>org/phoebus/pva/micrometer/internal/PvStructures.class</exclude>
+                            </excludes>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
