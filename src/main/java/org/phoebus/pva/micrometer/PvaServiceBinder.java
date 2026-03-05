@@ -8,8 +8,6 @@ import io.micrometer.core.instrument.binder.jvm.JvmThreadMetrics;
 import io.micrometer.core.instrument.binder.system.ProcessorMetrics;
 import io.micrometer.core.instrument.binder.system.UptimeMetrics;
 import io.micrometer.core.instrument.config.MeterFilter;
-import org.phoebus.pva.micrometer.internal.HealthPv;
-import org.phoebus.pva.micrometer.internal.InfoPv;
 
 import java.util.ArrayList;
 import java.util.List;

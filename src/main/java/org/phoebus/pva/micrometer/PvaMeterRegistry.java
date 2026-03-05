@@ -417,15 +417,12 @@ public class PvaMeterRegistry extends MeterRegistry {
      * (build metadata, aggregate health status) on the same PVAServer.
      * The channel is closed when the server shuts down.
      *
-     * <p><em>Note:</em> public only because {@code InfoPv} and {@code HealthPv} live
-     * in the {@code internal} sub-package; not intended for general consumer use.
-     *
      * @param pvName      PVA channel name
      * @param initialData PVA structure defining the channel type and initial values
      * @return the newly created {@link ServerPV}
      * @throws RuntimeException if the channel cannot be created
      */
-    public ServerPV createRawPv(String pvName, PVAStructure initialData) {
+    ServerPV createRawPv(String pvName, PVAStructure initialData) {
         try {
             ServerPV pv = pvaServer.createPV(pvName, initialData);
             rawPvs.put(pvName, pv);
@@ -442,12 +439,9 @@ public class PvaMeterRegistry extends MeterRegistry {
      * <p>Used by {@code HealthPv} to push updated health status to subscribed clients
      * on each poll tick without requiring a Micrometer meter.
      *
-     * <p><em>Note:</em> public only because {@code HealthPv} lives in the
-     * {@code internal} sub-package; not intended for general consumer use.
-     *
      * @param listener the action to invoke on each tick
      */
-    public void registerTickListener(Runnable listener) {
+    void registerTickListener(Runnable listener) {
         tickListeners.add(listener);
     }
 
