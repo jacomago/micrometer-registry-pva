@@ -1,4 +1,4 @@
-package org.phoebus.pva.micrometer.internal;
+package org.phoebus.pva.micrometer;
 
 import org.epics.pva.data.PVAString;
 import org.epics.pva.data.PVAStructure;
@@ -7,10 +7,7 @@ import org.epics.pva.data.nt.PVAAlarm.AlarmSeverity;
 import org.epics.pva.data.nt.PVAAlarm.AlarmStatus;
 import org.epics.pva.data.nt.PVATimeStamp;
 import org.epics.pva.server.ServerPV;
-import org.phoebus.pva.micrometer.Health;
 import org.phoebus.pva.micrometer.Health.Status;
-import org.phoebus.pva.micrometer.HealthIndicator;
-import org.phoebus.pva.micrometer.PvaMeterRegistry;
 
 import java.time.Instant;
 import java.util.List;
@@ -41,10 +38,10 @@ import java.util.logging.Logger;
  * registry.registerTickListener(healthPv::tick);
  * }</pre>
  *
- * <p>This class is package-internal; use {@link org.phoebus.pva.micrometer.PvaServiceBinder}
+ * <p>This class is package-internal; use {@link PvaServiceBinder}
  * to register health indicators.
  */
-public final class HealthPv {
+final class HealthPv {
 
     private static final Logger logger = Logger.getLogger(HealthPv.class.getName());
 
@@ -69,7 +66,7 @@ public final class HealthPv {
      * @param pvName     PVA channel name, e.g. {@code "<prefix>.health"}
      * @param indicators snapshot list of health indicators to aggregate (must be non-empty)
      */
-    public HealthPv(PvaMeterRegistry registry, String pvName, List<HealthIndicator> indicators) {
+    HealthPv(PvaMeterRegistry registry, String pvName, List<HealthIndicator> indicators) {
         this.indicators = indicators;
         this.data = buildInitialData();
         this.valueField = data.get("value");
@@ -83,9 +80,9 @@ public final class HealthPv {
      * the updated status to connected PVA clients.
      *
      * <p>Called by the poll loop via a tick listener registered in
-     * {@link org.phoebus.pva.micrometer.PvaServiceBinder#bindTo}.
+     * {@link PvaServiceBinder#bindTo}.
      */
-    public void tick() {
+    void tick() {
         Health aggregate = aggregate();
         valueField.set(aggregate.status().name());
         alarmField.set(toSeverity(aggregate.status()), AlarmStatus.NO_STATUS, aggregate.message());
@@ -100,7 +97,7 @@ public final class HealthPv {
     /**
      * Closes the underlying PVA channel, notifying connected clients.
      */
-    public void close() {
+    void close() {
         serverPV.close();
     }
 

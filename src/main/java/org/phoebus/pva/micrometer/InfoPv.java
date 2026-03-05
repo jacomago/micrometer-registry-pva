@@ -1,11 +1,10 @@
-package org.phoebus.pva.micrometer.internal;
+package org.phoebus.pva.micrometer;
 
 import org.epics.pva.data.PVAString;
 import org.epics.pva.data.PVAStructure;
 import org.epics.pva.data.nt.PVAAlarm;
 import org.epics.pva.data.nt.PVATimeStamp;
 import org.epics.pva.server.ServerPV;
-import org.phoebus.pva.micrometer.PvaMeterRegistry;
 
 import java.net.InetAddress;
 import java.time.Instant;
@@ -26,10 +25,10 @@ import java.util.logging.Logger;
  * {@link PvaMeterRegistry#createRawPv(String, PVAStructure)} and updated exactly
  * once — in the constructor.  The value never changes after that.
  *
- * <p>This class is package-internal; use {@link org.phoebus.pva.micrometer.PvaServiceBinder}
+ * <p>This class is package-internal; use {@link PvaServiceBinder}
  * to create build-info PVs.
  */
-public final class InfoPv {
+final class InfoPv {
 
     private static final Logger logger = Logger.getLogger(InfoPv.class.getName());
 
@@ -46,8 +45,8 @@ public final class InfoPv {
      * @param buildDate ISO-8601 build date; {@code null} → field omitted from JSON
      * @param gitCommit short Git commit hash; {@code null} → field omitted from JSON
      */
-    public InfoPv(PvaMeterRegistry registry, String pvName, String name,
-                  String version, String buildDate, String gitCommit) {
+    InfoPv(PvaMeterRegistry registry, String pvName, String name,
+           String version, String buildDate, String gitCommit) {
         PVAStructure data = buildInitialData();
         this.serverPV = registry.createRawPv(pvName, data);
 
@@ -72,7 +71,7 @@ public final class InfoPv {
     /**
      * Closes the underlying PVA channel, notifying connected clients.
      */
-    public void close() {
+    void close() {
         serverPV.close();
     }
 
