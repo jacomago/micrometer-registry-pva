@@ -2,7 +2,6 @@ package org.phoebus.pva.micrometer;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.epics.pva.data.PVAString;
 import org.epics.pva.data.PVAStructure;
@@ -88,8 +87,8 @@ final class InfoPv {
     }
 
     @JsonInclude(Include.NON_NULL)
-    record InfoDto(String name, String version, String buildDate,
-                   String gitCommit, String host) {}
+    private static record InfoDto(String name, String version, String buildDate,
+                                  String gitCommit, String host) {}
 
     /**
      * Builds a JSON object string from the supplied fields, omitting any that are
@@ -97,11 +96,6 @@ final class InfoPv {
      */
     static String buildJson(String name, String version, String buildDate,
                             String gitCommit, String host) {
-        try {
-            return MAPPER.writeValueAsString(new InfoDto(name, version, buildDate, gitCommit, host));
-        } catch (JsonProcessingException e) {
-            logger.log(Level.WARNING, "Failed to serialise info PV data", e);
-            return "{}";
-        }
+        return MAPPER.valueToTree(new InfoDto(name, version, buildDate, gitCommit, host)).toString();
     }
 }
