@@ -53,19 +53,6 @@ public interface PvaMeterRegistryConfig extends MeterRegistryConfig {
     }
 
     /**
-     * When {@code true} (the default), the poll loop publishes every meter value on every
-     * tick regardless of whether the value has changed.  This prevents EPICS clients from
-     * displaying stale-data alarms after a configurable channel-access timeout.
-     *
-     * <p>Set to {@code false} to publish only on change (reduces network traffic for
-     * stable metrics).
-     */
-    default boolean alwaysPublish() {
-        String v = get(prefix() + ".alwaysPublish");
-        return v == null || Boolean.parseBoolean(v);
-    }
-
-    /**
      * Strategy for converting a {@link io.micrometer.core.instrument.Meter.Id} (name + tags)
      * into a PVA channel name string.
      *
