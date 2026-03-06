@@ -34,7 +34,7 @@
          ================================================================ -->
     <properties>
         <micrometer.version>1.16.3</micrometer.version>
-        <core-pva.version>4.7.3</core-pva.version>
+        <core-pva.version>5.0.2</core-pva.version>
         <junit.version>5.11.4</junit.version>
         <mockito.version>5.17.0</mockito.version>
         <!-- Java baseline: must match Phoebus -->
