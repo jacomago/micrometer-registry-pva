@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      # Matches v1.0.0, v1.2.3, etc. Excludes pre-release tags like v1.0.0-rc1.
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create GitHub Release and upload assets
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+          # Writes ~/.m2/settings.xml with server credentials for Nexus deploy.
+          # The server-id must match the <id> in the phoebus-releases POM profile.
+          server-id: phoebus-releases
+          server-username: NEXUS_USERNAME
+          server-password: NEXUS_PASSWORD
+
+      - name: Extract version from tag
+        id: version
+        # Strip the leading 'v' from the tag name (v1.2.3 -> 1.2.3)
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set release version in POM
+        run: >
+          mvn --batch-mode versions:set
+          -DnewVersion=${{ steps.version.outputs.VERSION }}
+          -DgenerateBackupPoms=false
+
+      - name: Build and verify
+        run: mvn --batch-mode verify
+
+      - name: Deploy to Nexus
+        run: >
+          mvn --batch-mode deploy
+          -P phoebus-releases
+          -DskipTests
+          -Dphoebus.nexus.url=${{ secrets.PHOEBUS_NEXUS_URL }}
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Release ${{ github.ref_name }}"
+          files: target/*.jar
+          generate_release_notes: true
