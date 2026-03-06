@@ -53,3 +53,14 @@ jobs:
           name: jacoco-report
           path: target/site/jacoco/
           retention-days: 30
+
+      - name: Upload JAR artifact
+        if: >
+          matrix.java == '17' &&
+          github.ref == 'refs/heads/main' &&
+          github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: micrometer-registry-pva
+          path: target/*.jar
+          retention-days: 90
