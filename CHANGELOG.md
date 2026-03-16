@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Community hygiene files: `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`.
 - GitHub issue templates (bug report, feature request) and pull-request template.
+- README: Spring Boot integration guide with `@Configuration` examples,
+  `application.properties` reference, Spring Actuator health bridging,
+  and test-environment disable pattern.
+- README: `PvaServiceBinder` usage section, PV naming strategy reference,
+  and meter-type → PV-type mapping table.
+- README: `PvaMeterRegistryConfig` customisation section with supported
+  property keys and anonymous-class override examples.
 
 ---
 
