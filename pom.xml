@@ -196,7 +196,8 @@
                 maven-jar-plugin: produce the library JAR with a well-formed
                 MANIFEST.MF, including:
                   - Implementation-Title / Implementation-Version / Built-By
-                  - Automatic-Module-Name for Java 9+ module-path consumers
+                The module identity is now declared in module-info.java; no
+                Automatic-Module-Name manifest entry is required.
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -208,13 +209,11 @@
                             <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
                             <addDefaultSpecificationEntries>true</addDefaultSpecificationEntries>
                         </manifest>
-                        <manifestEntries>
-                            <!--
-                                Stable module name enables this library to be placed on the
-                                Java module path without requiring a module-info.java yet.
-                            -->
-                            <Automatic-Module-Name>org.phoebus.pva.micrometer</Automatic-Module-Name>
-                        </manifestEntries>
+                        <!--
+                            Automatic-Module-Name removed: the module is now declared
+                            in module-info.java, which takes precedence. The manifest
+                            entry is no longer needed.
+                        -->
                     </archive>
                 </configuration>
             </plugin>
@@ -255,13 +254,33 @@
             </plugin>
 
             <!--
+                maven-compiler-plugin: allow test sources to access the internal
+                package at compile time.  The internal package is intentionally not
+                exported by module-info.java, but white-box tests that verify the
+                concrete PV wrapper types still need access to it.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <testCompilerArg>--add-exports=org.phoebus.pva.micrometer/org.phoebus.pva.micrometer.internal=ALL-UNNAMED</testCompilerArg>
+                </configuration>
+            </plugin>
+
+            <!--
                 maven-surefire-plugin 3.x is required to run JUnit 5 (Jupiter) tests.
                 The default version bundled with Maven 3.x targets JUnit 4.
+                The argLine mirrors the compiler --add-exports above so the JVM
+                also permits test code to read the non-exported internal package
+                at runtime.
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.2</version>
+                <configuration>
+                    <argLine>--add-exports=org.phoebus.pva.micrometer/org.phoebus.pva.micrometer.internal=ALL-UNNAMED</argLine>
+                </configuration>
             </plugin>
 
             <!--
