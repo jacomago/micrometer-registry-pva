@@ -28,7 +28,7 @@ import java.util.function.ToDoubleFunction;
  * <p>The function result is expected to be monotonically increasing (consistent with the
  * Micrometer {@link FunctionCounter} contract).
  *
- * <p>This class is package-internal; use {@link PvaMeterRegistry} to register function counters.
+ * <p>This class is package-internal; use {@link org.phoebus.pva.micrometer.PvaMeterRegistry} to register function counters.
  *
  * @param <T> the type of the observed object
  */

@@ -53,7 +53,7 @@ import java.util.logging.Logger;
  * {@code ServerPV.update()}.  The alarm severity of each channel is set to
  * {@code NO_ALARM} on success or {@code INVALID} if the meter's value function throws.
  *
- * <h3>Usage</h3>
+ * <h2>Usage</h2>
  * <pre>{@code
  * // Minimal — owns and starts its own PVAServer:
  * PvaMeterRegistry registry = new PvaMeterRegistry(PvaMeterRegistryConfig.DEFAULT, Clock.SYSTEM);

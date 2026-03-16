@@ -16,7 +16,7 @@ import java.util.List;
  * Fluent builder that wires standard JVM metrics, optional build information, and
  * health indicators into a {@link PvaMeterRegistry}.
  *
- * <h3>Usage</h3>
+ * <h2>Usage</h2>
  * <pre>{@code
  * PvaServiceBinder.forService("archiver.engine")
  *     .withBuildInfo("1.0.0", "2024-01-15", "abc1234")

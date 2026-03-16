@@ -26,7 +26,7 @@ import java.util.function.ToDoubleFunction;
  * declared {@link TimeUnit}.  This makes the PV directly usable by EPICS clients
  * without requiring unit-conversion knowledge.
  *
- * <p>This class is package-internal; use {@link PvaMeterRegistry} to register time gauges.
+ * <p>This class is package-internal; use {@link org.phoebus.pva.micrometer.PvaMeterRegistry} to register time gauges.
  *
  * @param <T> the type of the observed object
  */

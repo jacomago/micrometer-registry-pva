@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.DoubleAdder;
  * <p>Increments are applied atomically via a {@link DoubleAdder}, which provides
  * thread-safe, contention-friendly accumulation without global locking.
  *
- * <p>This class is package-internal; use {@link PvaMeterRegistry} to register counters.
+ * <p>This class is package-internal; use {@link org.phoebus.pva.micrometer.PvaMeterRegistry} to register counters.
  */
 public final class PvaMicrometerCounter extends AbstractMeter implements Counter {
 
