@@ -1,11 +1,16 @@
 package org.phoebus.pva.micrometer;
 
+import io.micrometer.core.instrument.Tag;
+import io.micrometer.core.instrument.Tags;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.Iterator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for the default methods on {@link PvaMeterRegistryConfig}.
@@ -64,6 +69,61 @@ class PvaMeterRegistryConfigTest {
     }
 
     // -------------------------------------------------------------------------
+    // enabled()
+    // -------------------------------------------------------------------------
+
+    @Test
+    void enabled_defaultsToTrue_whenGetReturnsNull() {
+        PvaMeterRegistryConfig cfg = key -> null;
+        assertTrue(cfg.enabled(), "enabled() must default to true when get() returns null");
+    }
+
+    @Test
+    void enabled_returnsFalse_whenPropertyIsFalse() {
+        PvaMeterRegistryConfig cfg = key -> "pva.enabled".equals(key) ? "false" : null;
+        assertFalse(cfg.enabled(), "enabled() must return false when pva.enabled=false");
+    }
+
+    @Test
+    void enabled_returnsTrue_whenPropertyIsTrue() {
+        PvaMeterRegistryConfig cfg = key -> "pva.enabled".equals(key) ? "true" : null;
+        assertTrue(cfg.enabled(), "enabled() must return true when pva.enabled=true");
+    }
+
+    // -------------------------------------------------------------------------
+    // commonTags()
+    // -------------------------------------------------------------------------
+
+    @Test
+    void commonTags_defaultIsEmpty() {
+        PvaMeterRegistryConfig cfg = key -> null;
+        Iterable<Tag> tags = cfg.commonTags();
+        assertNotNull(tags, "commonTags() must not return null");
+        assertFalse(tags.iterator().hasNext(), "commonTags() must be empty by default");
+    }
+
+    @Test
+    void commonTags_canBeOverridden() {
+        Iterable<Tag> customTags = Tags.of("region", "us-east");
+        PvaMeterRegistryConfig cfg = new PvaMeterRegistryConfig() {
+            @Override
+            public String get(String key) {
+                return null;
+            }
+
+            @Override
+            public Iterable<Tag> commonTags() {
+                return customTags;
+            }
+        };
+        Iterator<Tag> it = cfg.commonTags().iterator();
+        assertTrue(it.hasNext(), "overridden commonTags() must have at least one tag");
+        Tag tag = it.next();
+        assertEquals("region", tag.getKey());
+        assertEquals("us-east", tag.getValue());
+    }
+
+    // -------------------------------------------------------------------------
     // DEFAULT singleton
     // -------------------------------------------------------------------------
 
@@ -74,5 +134,7 @@ class PvaMeterRegistryConfigTest {
         assertEquals(Duration.ofSeconds(10), PvaMeterRegistryConfig.DEFAULT.step());
         assertEquals(PvNamingStrategy.DOTS_WITH_BRACE_TAGS,
                 PvaMeterRegistryConfig.DEFAULT.namingStrategy());
+        assertTrue(PvaMeterRegistryConfig.DEFAULT.enabled());
+        assertFalse(PvaMeterRegistryConfig.DEFAULT.commonTags().iterator().hasNext());
     }
 }

@@ -138,6 +138,7 @@ public class PvaMeterRegistry extends MeterRegistry {
     private PvaMeterRegistry(PvaMeterRegistryConfig config, Clock clock,
             PVAServer pvaServer, boolean ownsServer) {
         super(clock);
+        config.requireValid();
         this.config = config;
         this.pvaServer = pvaServer;
         this.ownsServer = ownsServer;
@@ -158,10 +159,15 @@ public class PvaMeterRegistry extends MeterRegistry {
             pollActions.remove(meter.getId());
         });
 
-        // Start the poll loop immediately, then repeat at each step interval.
-        long stepMillis = config.step().toMillis();
-        pollExecutor.scheduleAtFixedRate(this::poll, 0, stepMillis,
-                TimeUnit.MILLISECONDS);
+        // Apply common tags from config so every meter carries them.
+        config().commonTags(config.commonTags());
+
+        // Start the poll loop only when publishing is enabled.
+        if (config.enabled()) {
+            long stepMillis = config.step().toMillis();
+            pollExecutor.scheduleAtFixedRate(this::poll, 0, stepMillis,
+                    TimeUnit.MILLISECONDS);
+        }
     }
 
     // -------------------------------------------------------------------------

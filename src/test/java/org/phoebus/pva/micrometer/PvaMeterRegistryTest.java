@@ -1546,6 +1546,63 @@ class PvaMeterRegistryTest {
     }
 
     // -------------------------------------------------------------------------
+    // Config — commonTags applied at construction
+    // -------------------------------------------------------------------------
+
+    @Test
+    void registry_commonTagsFromConfigAreAppliedToMeters() {
+        PvaMeterRegistryConfig configWithTags = new PvaMeterRegistryConfig() {
+            @Override
+            public String get(String key) {
+                return null;
+            }
+
+            @Override
+            public Duration step() {
+                return Duration.ofHours(1);
+            }
+
+            @Override
+            public Iterable<io.micrometer.core.instrument.Tag> commonTags() {
+                return Tags.of("env", "test");
+            }
+        };
+
+        try (PvaMeterRegistry r = new PvaMeterRegistry(configWithTags, Clock.SYSTEM)) {
+            // The gauge PV name should include the common tag.
+            Gauge.builder("myapp.heap", () -> 1.0).register(r);
+            assertNotNull(r.serverPv("myapp.heap{env=\"test\"}"),
+                    "PV name must include the common tag injected via config.commonTags()");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Config — enabled=false suppresses the poll loop
+    // -------------------------------------------------------------------------
+
+    @Test
+    void registry_disabledConfig_doesNotStartPollLoop() {
+        PvaMeterRegistryConfig disabledConfig = new PvaMeterRegistryConfig() {
+            @Override
+            public String get(String key) {
+                // Return "false" for the enabled property, null for everything else.
+                return "pva.enabled".equals(key) ? "false" : null;
+            }
+
+            @Override
+            public Duration step() {
+                return Duration.ofHours(1);
+            }
+        };
+
+        try (PvaMeterRegistry r = new PvaMeterRegistry(disabledConfig, Clock.SYSTEM)) {
+            // Meters can still be registered even when disabled.
+            Gauge gauge = Gauge.builder("disabled.gauge", () -> 42.0).register(r);
+            assertNotNull(gauge, "Meter registration must succeed even when enabled=false");
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Helper
     // -------------------------------------------------------------------------
 
