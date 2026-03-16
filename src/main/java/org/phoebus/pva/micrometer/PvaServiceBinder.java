@@ -27,7 +27,7 @@ import java.util.List;
  *     .bindTo(registry);
  * }</pre>
  *
- * <h2>What {@link #bindTo} does</h2>
+ * <h3>What {@link #bindTo} does</h3>
  * <ol>
  *   <li>Adds a {@code service=<prefix>} common tag via
  *       {@code registry.config().meterFilter(MeterFilter.commonTags(...))} so all

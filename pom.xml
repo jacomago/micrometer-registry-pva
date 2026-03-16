@@ -19,7 +19,7 @@
         Any Java application instrumented with Micrometer can publish all its
         metrics as live PVA process variables accessible to EPICS clients.
     </description>
-    <url>https://github.com/ControlSystemStudio/phoebus</url>
+    <url>https://github.com/jacomago/micrometer-registry-pva</url>
 
     <licenses>
         <license>
@@ -28,6 +28,28 @@
             <distribution>repo</distribution>
         </license>
     </licenses>
+
+    <developers>
+        <developer>
+            <id>jacomago</id>
+            <name>Sky Brewer</name>
+            <email>jacobrewer@gmail.com</email>
+            <url>https://github.com/jacomago</url>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:https://github.com/jacomago/micrometer-registry-pva.git</connection>
+        <developerConnection>scm:git:git@github.com:jacomago/micrometer-registry-pva.git</developerConnection>
+        <url>https://github.com/jacomago/micrometer-registry-pva</url>
+        <tag>HEAD</tag>
+    </scm>
+
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/jacomago/micrometer-registry-pva/issues</url>
+    </issueManagement>
+
 
     <!-- ================================================================
          Dependency versions
@@ -101,13 +123,16 @@
 
         <!--
             Jackson Databind: JSON serialisation used by InfoPv to build the
-            build-metadata JSON string.  Compile scope so consumers that embed
-            InfoPv can rely on Jackson being present.
+            build-metadata JSON string.  Marked optional so consumers that do
+            not use InfoPv are not forced to pull in Jackson transitively.
+            Applications that do use InfoPv must declare jackson-databind
+            in their own POM.
         -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>2.18.2</version>
+            <optional>true</optional>
         </dependency>
 
     </dependencies>
@@ -192,6 +217,41 @@
                         </manifestEntries>
                     </archive>
                 </configuration>
+            </plugin>
+
+            <!--
+                maven-source-plugin: attaches a -sources.jar to the build so that
+                IDEs and Maven Central consumers can browse the library source.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals><goal>jar-no-fork</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+                maven-javadoc-plugin: attaches a -javadoc.jar required by Maven
+                Central (and useful for IDE documentation lookup).
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.11.2</version>
+                <configuration>
+                    <release>${java.version}</release>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals><goal>jar</goal></goals>
+                    </execution>
+                </executions>
             </plugin>
 
             <!--

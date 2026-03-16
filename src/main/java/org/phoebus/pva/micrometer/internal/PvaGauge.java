@@ -30,7 +30,7 @@ import java.util.function.ToDoubleFunction;
  * collection of the instrumented object.  If the reference is cleared, {@link #value()}
  * returns {@link Double#NaN} and the alarm is set to {@code INVALID}.
  *
- * <p>This class is package-internal; use {@link PvaMeterRegistry} to register gauges.
+ * <p>This class is package-internal; use {@link org.phoebus.pva.micrometer.PvaMeterRegistry} to register gauges.
  *
  * @param <T> the type of the observed object
  */
