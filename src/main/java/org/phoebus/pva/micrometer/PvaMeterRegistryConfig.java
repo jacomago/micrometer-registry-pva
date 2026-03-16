@@ -1,5 +1,7 @@
 package org.phoebus.pva.micrometer;
 
+import io.micrometer.core.instrument.Tag;
+import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.config.MeterRegistryConfig;
 
 import java.time.Duration;
@@ -50,6 +52,34 @@ public interface PvaMeterRegistryConfig extends MeterRegistryConfig {
     default Duration step() {
         String v = get(prefix() + ".step");
         return v == null ? Duration.ofSeconds(10) : Duration.parse(v);
+    }
+
+    /**
+     * Whether publishing to PVA is enabled.
+     *
+     * <p>When {@code false} the poll loop is not started: meter registrations still
+     * succeed but no PVA channels are updated.  Useful for disabling the registry in
+     * test environments without changing application code.
+     *
+     * <p>Default: {@code true}.  Override via the property {@code "pva.enabled"}.
+     */
+    default boolean enabled() {
+        String v = get(prefix() + ".enabled");
+        return v == null || Boolean.parseBoolean(v);
+    }
+
+    /**
+     * Common tags that are automatically applied to every meter registered in the
+     * {@link PvaMeterRegistry}.
+     *
+     * <p>These tags become part of the PVA channel name via the configured
+     * {@link PvNamingStrategy}, so they are visible to EPICS clients without any
+     * extra configuration.
+     *
+     * <p>Default: empty (no common tags).
+     */
+    default Iterable<Tag> commonTags() {
+        return Tags.empty();
     }
 
     /**
