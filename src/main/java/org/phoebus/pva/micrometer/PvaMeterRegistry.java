@@ -314,7 +314,7 @@ public class PvaMeterRegistry extends MeterRegistry {
     protected Timer newTimer(Meter.Id id, DistributionStatisticConfig distributionStatisticConfig,
             PauseDetector pauseDetector) {
         warnIfDistributionConfigRequested(id, distributionStatisticConfig);
-        PvaTimer timer = new PvaTimer(id, clock, distributionStatisticConfig, pauseDetector);
+        PvaTimer timer = new PvaTimer(id, clock, DistributionStatisticConfig.NONE, pauseDetector);
         String pvName = config.namingStrategy().pvName(id);
         registerPv(id, timer.getInitialData(), pvName, timer::updatePv);
         return timer;
@@ -335,7 +335,7 @@ public class PvaMeterRegistry extends MeterRegistry {
             DistributionStatisticConfig distributionStatisticConfig, double scale) {
         warnIfDistributionConfigRequested(id, distributionStatisticConfig);
         PvaDistributionSummary summary =
-                new PvaDistributionSummary(id, clock, distributionStatisticConfig, scale);
+                new PvaDistributionSummary(id, clock, DistributionStatisticConfig.NONE, scale);
         String pvName = config.namingStrategy().pvName(id);
         registerPv(id, summary.getInitialData(), pvName, summary::updatePv);
         return summary;
