@@ -262,6 +262,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
                 <configuration>
                     <testCompilerArg>--add-exports=org.phoebus.pva.micrometer/org.phoebus.pva.micrometer.internal=ALL-UNNAMED</testCompilerArg>
                 </configuration>
@@ -270,7 +271,7 @@
             <!--
                 maven-surefire-plugin 3.x is required to run JUnit 5 (Jupiter) tests.
                 The default version bundled with Maven 3.x targets JUnit 4.
-                The argLine mirrors the compiler --add-exports above so the JVM
+                The argLine mirrors the compiler add-exports above so the JVM
                 also permits test code to read the non-exported internal package
                 at runtime.
             -->
