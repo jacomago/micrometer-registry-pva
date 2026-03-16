@@ -1,5 +1,10 @@
 # micrometer-registry-pva
 
+[![CI](https://github.com/jacomago/micrometer-registry-pva/actions/workflows/ci.yml/badge.svg)](https://github.com/jacomago/micrometer-registry-pva/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/jacomago/micrometer-registry-pva/actions/workflows/codeql.yml/badge.svg)](https://github.com/jacomago/micrometer-registry-pva/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Java 17+](https://img.shields.io/badge/Java-17%2B-blue.svg)](https://adoptium.net/)
+
 A [Micrometer](https://micrometer.io/) `MeterRegistry` backed by an
 [EPICS PV Access (PVA)](https://github.com/epics-base/pvAccessJava) server.
 Any Java application instrumented with Micrometer can publish all its metrics
@@ -17,10 +22,12 @@ This compiles, tests, and installs the artifact to `~/.m2/repository`.
 
 ### Deploying to the Phoebus Nexus/Artifactory (future)
 
-Once the repository URL is confirmed, run:
+Once the Nexus/Artifactory URL is confirmed and recorded in
+[`pom.xml`](pom.xml), run:
 
 ```bash
-mvn deploy -P phoebus-releases -Dphoebus.nexus.url=https://nexus.example.org
+# TODO: replace <NEXUS_URL> with the confirmed repository URL before releasing
+mvn deploy -P phoebus-releases -Dphoebus.nexus.url=<NEXUS_URL>
 ```
 
 Configure credentials in `~/.m2/settings.xml`:
@@ -50,11 +57,12 @@ declare the Phoebus Nexus repository in your project so Maven can resolve it.
 **Maven (`pom.xml`)**
 
 ```xml
+<!-- TODO: replace NEXUS_URL with the confirmed Phoebus Nexus/Artifactory URL -->
 <repositories>
   <repository>
     <id>phoebus-releases</id>
     <name>Phoebus Releases</name>
-    <url>https://nexus.example.org/repository/releases/</url>   <!-- replace with confirmed URL -->
+    <url>NEXUS_URL/repository/releases/</url>
     <releases><enabled>true</enabled></releases>
     <snapshots><enabled>false</enabled></snapshots>
   </repository>
@@ -67,7 +75,8 @@ declare the Phoebus Nexus repository in your project so Maven can resolve it.
 repositories {
     maven {
         name = 'phoebusReleases'
-        url  = 'https://nexus.example.org/repository/releases/'   // replace with confirmed URL
+        // TODO: replace NEXUS_URL with the confirmed Phoebus Nexus/Artifactory URL
+        url  = 'NEXUS_URL/repository/releases/'
     }
     mavenCentral()
 }
