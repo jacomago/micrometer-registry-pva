@@ -57,13 +57,9 @@ public final class PvaFunctionCounter<T> extends AbstractMeter implements Functi
         super(id);
         this.ref = new WeakReference<>(obj);
         this.countFunction = countFunction;
-        this.data = buildInitialData();
+        this.data = PvStructures.buildDoubleScalar(id.getDescription(), id.getBaseUnit());
         this.valueField = data.get("value");
         this.alarmField = data.get("alarm");
-    }
-
-    private static PVAScalar<PVADouble> buildInitialData() {
-        return PvStructures.buildDoubleScalar();
     }
 
     /**
