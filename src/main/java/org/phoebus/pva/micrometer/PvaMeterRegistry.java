@@ -298,10 +298,16 @@ public class PvaMeterRegistry extends MeterRegistry {
      *
      * <p>Creates a {@code micrometer:Timer:1.0} PVA channel that publishes
      * {@code count}, {@code totalTime} (seconds), and {@code max} (seconds) on every tick.
+     *
+     * <p><b>Note:</b> This registry publishes only aggregate statistics (count, total, max).
+     * If {@code distributionStatisticConfig} requests percentiles, a percentile histogram,
+     * or SLO boundaries, those settings are silently ignored.  A warning is logged to alert
+     * the caller.
      */
     @Override
     protected Timer newTimer(Meter.Id id, DistributionStatisticConfig distributionStatisticConfig,
             PauseDetector pauseDetector) {
+        warnIfDistributionConfigRequested(id, distributionStatisticConfig);
         PvaTimer timer = new PvaTimer(id, clock, distributionStatisticConfig, pauseDetector);
         String pvName = config.namingStrategy().pvName(id);
         registerPv(id, timer.getInitialData(), pvName, timer::updatePv);
@@ -313,10 +319,15 @@ public class PvaMeterRegistry extends MeterRegistry {
      *
      * <p>Creates a {@code micrometer:Summary:1.0} PVA channel that publishes
      * {@code count}, {@code total}, and {@code max} on every tick.
+     *
+     * <p><b>Note:</b> Percentiles, percentile histograms, and SLO boundaries requested via
+     * {@code distributionStatisticConfig} are not supported by this registry and will be
+     * ignored.  A warning is logged to alert the caller.
      */
     @Override
     protected DistributionSummary newDistributionSummary(Meter.Id id,
             DistributionStatisticConfig distributionStatisticConfig, double scale) {
+        warnIfDistributionConfigRequested(id, distributionStatisticConfig);
         PvaDistributionSummary summary =
                 new PvaDistributionSummary(id, clock, distributionStatisticConfig, scale);
         String pvName = config.namingStrategy().pvName(id);
@@ -362,10 +373,15 @@ public class PvaMeterRegistry extends MeterRegistry {
      *
      * <p>Creates a {@code micrometer:LongTaskTimer:1.0} PVA channel that publishes
      * {@code activeTasks} and {@code duration} (seconds) on every tick.
+     *
+     * <p><b>Note:</b> {@code distributionStatisticConfig} is not used by this registry;
+     * percentiles, histograms, and SLO boundaries are not supported for LongTaskTimer.
+     * A warning is logged if any of those settings are requested.
      */
     @Override
     protected LongTaskTimer newLongTaskTimer(Meter.Id id,
             DistributionStatisticConfig distributionStatisticConfig) {
+        warnIfDistributionConfigRequested(id, distributionStatisticConfig);
         PvaLongTaskTimer ltt = new PvaLongTaskTimer(id, clock);
         String pvName = config.namingStrategy().pvName(id);
         registerPv(id, ltt.getInitialData(), pvName, ltt::updatePv);
@@ -505,6 +521,35 @@ public class PvaMeterRegistry extends MeterRegistry {
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Logs a {@code WARNING} if {@code config} requests percentiles, a percentile histogram,
+     * or SLO bucket boundaries — none of which are supported by this registry.
+     *
+     * <p>This surfaces configuration mistakes that would otherwise be silently ignored:
+     * a user who enables {@code publishPercentiles(0.95)} on a Timer registered against
+     * a {@code PvaMeterRegistry} would otherwise never know those settings have no effect.
+     *
+     * @param id     the meter whose configuration is being checked (used only in the message)
+     * @param config the merged {@link DistributionStatisticConfig} supplied by Micrometer
+     */
+    private void warnIfDistributionConfigRequested(Meter.Id id,
+            DistributionStatisticConfig config) {
+        double[] percentiles = config.getPercentiles();
+        boolean hasPercentiles = percentiles != null && percentiles.length > 0;
+
+        Boolean isHistogram = config.isPercentileHistogram();
+        boolean hasHistogram = isHistogram != null && isHistogram;
+
+        double[] slos = config.getServiceLevelObjectiveBoundaries();
+        boolean hasSlos = slos != null && slos.length > 0;
+
+        if (hasPercentiles || hasHistogram || hasSlos) {
+            logger.warning("PvaMeterRegistry does not support percentiles, histograms, or SLO"
+                    + " boundaries; DistributionStatisticConfig for '"
+                    + id.getName() + "' will be ignored.");
+        }
+    }
 
     private static PVAServer createServer() {
         try {

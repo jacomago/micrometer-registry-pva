@@ -48,13 +48,9 @@ public final class PvaMicrometerCounter extends AbstractMeter implements Counter
      */
     public PvaMicrometerCounter(Meter.Id id) {
         super(id);
-        this.data = buildInitialData();
+        this.data = PvStructures.buildDoubleScalar(id.getDescription(), id.getBaseUnit());
         this.valueField = data.get("value");
         this.alarmField = data.get("alarm");
-    }
-
-    private static PVAScalar<PVADouble> buildInitialData() {
-        return PvStructures.buildDoubleScalar();
     }
 
     /**

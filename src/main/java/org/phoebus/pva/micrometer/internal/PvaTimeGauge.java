@@ -59,13 +59,9 @@ public final class PvaTimeGauge<T> extends AbstractMeter implements TimeGauge {
         this.ref = new WeakReference<>(obj);
         this.valueFunctionUnit = valueFunctionUnit;
         this.valueFunction = valueFunction;
-        this.data = buildInitialData();
+        this.data = PvStructures.buildDoubleScalar(id.getDescription(), "s");
         this.valueField = data.get("value");
         this.alarmField = data.get("alarm");
-    }
-
-    private static PVAScalar<PVADouble> buildInitialData() {
-        return PvStructures.buildDoubleScalar();
     }
 
     @Override
