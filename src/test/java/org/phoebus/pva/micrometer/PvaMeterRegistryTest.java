@@ -1568,11 +1568,14 @@ class PvaMeterRegistryTest {
             }
         };
 
-        try (PvaMeterRegistry r = new PvaMeterRegistry(configWithTags, Clock.SYSTEM)) {
+        PvaMeterRegistry r = new PvaMeterRegistry(configWithTags, Clock.SYSTEM);
+        try {
             // The gauge PV name should include the common tag.
             Gauge.builder("myapp.heap", () -> 1.0).register(r);
             assertNotNull(r.serverPv("myapp.heap{env=\"test\"}"),
                     "PV name must include the common tag injected via config.commonTags()");
+        } finally {
+            r.close();
         }
     }
 
@@ -1595,10 +1598,13 @@ class PvaMeterRegistryTest {
             }
         };
 
-        try (PvaMeterRegistry r = new PvaMeterRegistry(disabledConfig, Clock.SYSTEM)) {
+        PvaMeterRegistry r = new PvaMeterRegistry(disabledConfig, Clock.SYSTEM);
+        try {
             // Meters can still be registered even when disabled.
             Gauge gauge = Gauge.builder("disabled.gauge", () -> 42.0).register(r);
             assertNotNull(gauge, "Meter registration must succeed even when enabled=false");
+        } finally {
+            r.close();
         }
     }
 
