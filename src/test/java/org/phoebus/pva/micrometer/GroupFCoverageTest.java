@@ -221,6 +221,7 @@ class GroupFCoverageTest {
     void distributionSummary_withPercentileConfig_registersWithoutError() {
         DistributionSummary summary = DistributionSummary.builder("test.summary.pct")
                 .publishPercentiles(0.5, 0.95)
+                .percentilePrecision(1)
                 .register(registry);
 
         assertNotNull(summary,
@@ -236,6 +237,7 @@ class GroupFCoverageTest {
     void distributionSummary_withPercentileConfig_recordAndUpdatePvWork() throws Exception {
         DistributionSummary summary = DistributionSummary.builder("test.summary.pct.update")
                 .publishPercentiles(0.5, 0.99)
+                .percentilePrecision(1)
                 .register(registry);
         summary.record(10.0);
         summary.record(20.0);
