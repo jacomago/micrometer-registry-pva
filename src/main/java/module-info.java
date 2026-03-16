@@ -18,15 +18,20 @@ module org.phoebus.pva.micrometer {
     // ----------------------------------------------------------------
 
     // Micrometer — transitive: consumers reference MeterRegistry, Clock, etc.
-    requires transitive io.micrometer.core;
+    // Module name comes from Automatic-Module-Name = project.name.replace('-','.')
+    // in Micrometer's root build.gradle → "micrometer.core".
+    requires transitive micrometer.core;
 
     // Phoebus core-pva — transitive: consumers may pass a PVAServer instance
     // to PvaMeterRegistry(config, clock, PVAServer).
-    requires transitive org.phoebus.core.pva;
+    // core-pva ships no Automatic-Module-Name; the name is derived from the
+    // JAR filename: core-pva-*.jar → "core.pva".
+    requires transitive core.pva;
 
     // Jackson Databind — implementation detail (InfoPv JSON serialisation).
-    // jackson-databind re-exports jackson-annotations transitively, so
-    // com.fasterxml.jackson.annotation types in InfoPv are covered.
+    // jackson-databind ships a module-info.class (added via moditect) with
+    // name "com.fasterxml.jackson.databind", which re-exports
+    // jackson-annotations transitively, covering the @JsonInclude usage.
     requires com.fasterxml.jackson.databind;
 
     // java.logging — java.util.logging.Logger used throughout the module.
