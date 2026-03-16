@@ -13,6 +13,11 @@ module org.phoebus.pva.micrometer {
     exports org.phoebus.pva.micrometer;
     // org.phoebus.pva.micrometer.internal is intentionally NOT exported.
 
+    // Jackson needs reflective access to InfoDto (a record inside InfoPv)
+    // for serialisation.  We open only to jackson-databind, not to ALL-UNNAMED,
+    // to keep the encapsulation as tight as possible.
+    opens org.phoebus.pva.micrometer to com.fasterxml.jackson.databind;
+
     // ----------------------------------------------------------------
     // Required modules
     // ----------------------------------------------------------------
