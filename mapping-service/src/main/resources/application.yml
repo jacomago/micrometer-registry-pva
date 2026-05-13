@@ -1,0 +1,90 @@
+spring:
+  application:
+    name: pva-mapping-service
+  # Suppress the Spring Boot web server — this is a background service only.
+  main:
+    web-application-type: none
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PVA Mapping Service configuration
+#
+# Override or extend via --spring.config.import=file:./mapping.yml on the
+# command line, or by setting SPRING_CONFIG_IMPORT in the environment.
+#
+# The example below is commented out.  Provide your own mapping.yml (or inline
+# the pva-mapping block here) pointing at your actual service URLs.
+# ──────────────────────────────────────────────────────────────────────────────
+
+pva-mapping:
+  poll-interval: PT10S   # global default; override per service with poll-interval:
+
+  # services:
+  #
+  #   archiver:
+  #     base-url: "http://archiver:8080"
+  #     poll-interval: PT30S          # optional per-service override
+  #     channels:
+  #
+  #       - pv: "ARCH:up"
+  #         path: /actuator/health
+  #         scraper:
+  #           type: http-status       # 1.0 if 2xx, MAJOR alarm otherwise
+  #         description: "Archiver reachable"
+  #
+  #       - pv: "ARCH:pv:connected"
+  #         path: /actuator/prometheus
+  #         scraper:
+  #           type: prometheus
+  #           metric: archiver_connected_pv_count
+  #         description: "PVs currently being archived"
+  #
+  #       - pv: "ARCH:mem:heap"
+  #         path: /actuator/prometheus
+  #         scraper:
+  #           type: prometheus
+  #           metric: jvm_memory_used_bytes
+  #           labels:
+  #             area: heap
+  #         unit: bytes
+  #         description: "Archiver heap memory in use"
+  #
+  #       - pv: "ARCH:status"
+  #         path: /actuator/health
+  #         scraper:
+  #           type: json
+  #           json-path: status
+  #           value-map:
+  #             UP: 1.0
+  #             DEGRADED: 0.5
+  #             DOWN: 0.0
+  #         description: "Archiver health status"
+  #
+  #   channel-finder:
+  #     base-url: "http://channelfinder:8080"
+  #     channels:
+  #       - pv: "CF:up"
+  #         path: /actuator/health
+  #         scraper: {type: http-status}
+  #
+  #       - pv: "CF:channels"
+  #         path: /actuator/prometheus
+  #         scraper:
+  #           type: prometheus
+  #           metric: elasticsearch_index_document_count
+  #           labels:
+  #             index: channelfinder
+  #         description: "Indexed channel count"
+  #
+  #   alarm-server:
+  #     base-url: "http://alarm-server:8080"
+  #     channels:
+  #       - pv: "ALARM:up"
+  #         path: /actuator/health
+  #         scraper: {type: http-status}
+  #
+  #       - pv: "ALARM:active"
+  #         path: /actuator/prometheus
+  #         scraper:
+  #           type: prometheus
+  #           metric: alarm_active_count
+  #         description: "Currently active alarms"
