@@ -38,6 +38,11 @@ import static org.mockito.Mockito.doThrow;
  */
 class PvaServiceBinderTest {
 
+    static {
+        PVASettings.EPICS_PVAS_INTF_ADDR_LIST = "127.0.0.1";
+        PVASettings.EPICS_PVA_ENABLE_IPV6 = false;
+    }
+
     private static final PvaMeterRegistryConfig TEST_CONFIG = new PvaMeterRegistryConfig() {
         @Override
         public String get(String key) {
