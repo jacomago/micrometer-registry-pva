@@ -43,7 +43,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: surefire-reports-java${{ matrix.java }}
-          path: target/surefire-reports/
+          path: "**/target/surefire-reports/"
           retention-days: 7
 
       - name: Upload coverage report
@@ -51,16 +51,18 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-report
-          path: target/site/jacoco/
+          path: registry/target/site/jacoco/
           retention-days: 30
 
-      - name: Upload JAR artifact
+      - name: Upload JAR artifacts
         if: >
           matrix.java == '17' &&
           github.ref == 'refs/heads/main' &&
           github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
-          name: micrometer-registry-pva
-          path: target/*.jar
+          name: jars
+          path: |
+            registry/target/micrometer-registry-pva-*.jar
+            mapping-service/target/pva-mapping-service-*.jar
           retention-days: 90

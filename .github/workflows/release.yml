@@ -34,18 +34,22 @@ jobs:
         # Strip the leading 'v' from the tag name (v1.2.3 -> 1.2.3)
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Set release version in POM
+      - name: Set release version in all modules
         run: >
           mvn --batch-mode versions:set
           -DnewVersion=${{ steps.version.outputs.VERSION }}
           -DgenerateBackupPoms=false
+          -DprocessAllModules=true
 
       - name: Build and verify
         run: mvn --batch-mode verify
 
-      - name: Deploy to Nexus
+      - name: Deploy registry library to Nexus
+        # Only the registry module is a publishable library artifact.
+        # The mapping-service is a runnable Spring Boot JAR, not a library.
         run: >
           mvn --batch-mode deploy
+          -pl registry
           -P phoebus-releases
           -Dphoebus.nexus.url=${{ secrets.PHOEBUS_NEXUS_URL }}
         env:
@@ -57,5 +61,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: "Release ${{ github.ref_name }}"
-          files: target/*.jar
+          files: |
+            registry/target/micrometer-registry-pva-*.jar
+            mapping-service/target/pva-mapping-service-*.jar
           generate_release_notes: true

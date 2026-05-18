@@ -8,6 +8,7 @@ import io.micrometer.core.instrument.Measurement;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Statistic;
 import io.micrometer.core.instrument.Timer;
+import org.epics.pva.PVASettings;
 import org.epics.pva.data.PVADouble;
 import org.epics.pva.data.PVALong;
 import org.epics.pva.data.PVAStructure;
@@ -45,6 +46,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </ol>
  */
 class GroupFCoverageTest {
+
+    static {
+        PVASettings.EPICS_PVAS_INTF_ADDR_LIST = "127.0.0.1";
+        PVASettings.EPICS_PVA_ENABLE_IPV6 = false;
+    }
 
     private static final PvaMeterRegistryConfig TEST_CONFIG = new PvaMeterRegistryConfig() {
         @Override
