@@ -1,8 +1,28 @@
 version: 2
 updates:
-  # Keep Maven dependencies current (pom.xml)
+  # Root aggregator POM
   - package-ecosystem: "maven"
     directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+
+  # Micrometer registry library
+  - package-ecosystem: "maven"
+    directory: "/registry"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+
+  # PVA mapping service
+  - package-ecosystem: "maven"
+    directory: "/mapping-service"
     schedule:
       interval: "weekly"
       day: "monday"
