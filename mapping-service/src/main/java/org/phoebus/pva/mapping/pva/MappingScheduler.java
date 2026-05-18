@@ -13,7 +13,6 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -21,9 +20,10 @@ import java.util.logging.Logger;
 /**
  * Schedules one poll task per configured service, each running at its own interval.
  *
- * <p>Each task fetches all channels for the service in sequence.  If the service has no
- * per-service {@code poll-interval}, the global default from {@link MappingProperties} is used.
- * Scrapers are created once at startup from the configuration and reused on every tick.
+ * <p>Each task scrapes all channels for the service in sequence and writes results
+ * into the {@link MappingRegistry}.  A successful scrape calls {@link MappingRegistry#setValue};
+ * any failure calls {@link MappingRegistry#clearValue} which sets the gauge to NaN and
+ * causes the registry to publish {@code INVALID} alarm.
  */
 @Component
 public class MappingScheduler implements SchedulingConfigurer {
@@ -32,17 +32,16 @@ public class MappingScheduler implements SchedulingConfigurer {
 
     private final MappingProperties properties;
     private final ScraperFactory scraperFactory;
-    private final PvaChannelManager channelManager;
+    private final MappingRegistry mappingRegistry;
 
-    /** Pre-built (serviceName, url, scraper, pvName) tuples, grouped by service. */
     private record PollTarget(String pvName, String url, Scraper scraper) {}
 
     public MappingScheduler(MappingProperties properties,
                              ScraperFactory scraperFactory,
-                             PvaChannelManager channelManager) {
+                             MappingRegistry mappingRegistry) {
         this.properties = properties;
         this.scraperFactory = scraperFactory;
-        this.channelManager = channelManager;
+        this.mappingRegistry = mappingRegistry;
     }
 
     @Override
@@ -52,11 +51,8 @@ public class MappingScheduler implements SchedulingConfigurer {
             return;
         }
 
-        int serviceCount = properties.services().size();
-        registrar.setScheduler(Executors.newScheduledThreadPool(serviceCount));
-
-        properties.services().forEach((name, svc) ->
-                registerServiceTask(registrar, name, svc));
+        registrar.setScheduler(Executors.newScheduledThreadPool(properties.services().size()));
+        properties.services().forEach((name, svc) -> registerServiceTask(registrar, name, svc));
     }
 
     private void registerServiceTask(ScheduledTaskRegistrar registrar,
@@ -97,10 +93,15 @@ public class MappingScheduler implements SchedulingConfigurer {
         for (PollTarget t : targets) {
             try {
                 ScraperResult result = t.scraper().scrape(t.url());
-                channelManager.applyResult(t.pvName(), result);
+                if (result instanceof ScraperResult.Value v) {
+                    mappingRegistry.setValue(t.pvName(), v.value());
+                } else {
+                    mappingRegistry.clearValue(t.pvName());
+                }
             } catch (Exception e) {
                 log.log(Level.WARNING, "Unexpected error polling '" + t.pvName()
                         + "' in service '" + serviceName + "'", e);
+                mappingRegistry.clearValue(t.pvName());
             }
         }
     }

@@ -39,18 +39,15 @@ public class PrometheusScraper implements Scraper {
             HttpResponse<String> response =
                     httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                return new ScraperResult.Unavailable("HTTP " + response.statusCode(),
-                        ScraperResult.Unavailable.Severity.MAJOR);
+                return new ScraperResult.Unavailable("HTTP " + response.statusCode());
             }
             List<Sample> samples = PrometheusTextParser.parse(response.body());
             return PrometheusTextParser.find(samples, metric, labels)
                     .map(s -> (ScraperResult) new ScraperResult.Value(s.value()))
-                    .orElse(new ScraperResult.Unavailable(
-                            "Metric not found: " + metric,
-                            ScraperResult.Unavailable.Severity.MINOR));
+                    .orElse(new ScraperResult.Unavailable("Metric not found: " + metric));
         } catch (Exception e) {
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            return new ScraperResult.Unavailable(msg, ScraperResult.Unavailable.Severity.MAJOR);
+            return new ScraperResult.Unavailable(msg);
         }
     }
 }

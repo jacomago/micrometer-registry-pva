@@ -31,11 +31,10 @@ public class HttpStatusScraper implements Scraper {
                     .statusCode();
             return (status >= 200 && status < 300)
                     ? new ScraperResult.Value(1.0)
-                    : new ScraperResult.Unavailable("HTTP " + status,
-                            ScraperResult.Unavailable.Severity.MAJOR);
+                    : new ScraperResult.Unavailable("HTTP " + status);
         } catch (Exception e) {
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            return new ScraperResult.Unavailable(msg, ScraperResult.Unavailable.Severity.MAJOR);
+            return new ScraperResult.Unavailable(msg);
         }
     }
 }

@@ -17,7 +17,7 @@ import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
-import org.phoebus.pva.mapping.pva.PvaChannelManager;
+import org.phoebus.pva.mapping.pva.MappingRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -32,14 +32,16 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * End-to-end integration test: real PVAServer + MockWebServer HTTP stubs.
+ * End-to-end integration test: real PvaMeterRegistry (with embedded PVAServer) +
+ * MockWebServer HTTP stubs.
  *
  * <p>The Spring context starts with a short poll interval (500 ms) and all scrape URLs
  * pointing at a MockWebServer dispatcher.  After each scenario we wait for at least one
  * poll cycle, then use a PVAClient to read values and alarm severities back.
  *
- * <p>Alarm severity integers match standard EPICS: 0=NO_ALARM, 1=MINOR, 2=MAJOR, 3=INVALID.
- * (Same convention as the library's {@code PvaServiceBinderTest}.)
+ * <p>Alarm severity integers follow standard EPICS: 0=NO_ALARM, 3=INVALID.
+ * All unavailable scrape results set the gauge to NaN, which PvaMeterRegistry publishes
+ * as INVALID alarm.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
@@ -53,8 +55,7 @@ class MappingServiceIntegrationTest {
     }
 
     static final int ALARM_NO_ALARM = 0;
-    static final int ALARM_MINOR    = 1;
-    static final int ALARM_MAJOR    = 2;
+    static final int ALARM_INVALID  = 3;
 
     private static final long POLL_MS = 500;
 
@@ -66,7 +67,7 @@ class MappingServiceIntegrationTest {
     private static MockWebServer mockServer;
 
     @Autowired
-    PvaChannelManager channelManager;
+    MappingRegistry mappingRegistry;
 
     // ── Dynamic Spring configuration ──────────────────────────────────────────
 
@@ -130,11 +131,11 @@ class MappingServiceIntegrationTest {
     static boolean savedAutoAddrList;
 
     @BeforeAll
-    static void setUpPvaClient(@Autowired PvaChannelManager mgr) throws Exception {
-        int port = mgr.getServerPort();
-        savedNameServers   = PVASettings.EPICS_PVA_NAME_SERVERS;
-        savedAutoAddrList  = PVASettings.EPICS_PVA_AUTO_ADDR_LIST;
-        PVASettings.EPICS_PVA_NAME_SERVERS  = "127.0.0.1:" + port;
+    static void setUpPvaClient(@Autowired MappingRegistry registry) throws Exception {
+        int port = registry.getServerPort();
+        savedNameServers  = PVASettings.EPICS_PVA_NAME_SERVERS;
+        savedAutoAddrList = PVASettings.EPICS_PVA_AUTO_ADDR_LIST;
+        PVASettings.EPICS_PVA_NAME_SERVERS   = "127.0.0.1:" + port;
         PVASettings.EPICS_PVA_AUTO_ADDR_LIST = false;
         pvaClient = new PVAClient();
     }
@@ -143,7 +144,7 @@ class MappingServiceIntegrationTest {
     static void tearDown() throws Exception {
         channelCache.values().forEach(ch -> { try { ch.close(); } catch (Exception ignored) {} });
         if (pvaClient != null) pvaClient.close();
-        PVASettings.EPICS_PVA_NAME_SERVERS  = savedNameServers;
+        PVASettings.EPICS_PVA_NAME_SERVERS   = savedNameServers;
         PVASettings.EPICS_PVA_AUTO_ADDR_LIST = savedAutoAddrList;
         if (mockServer != null) mockServer.shutdown();
     }
@@ -206,26 +207,26 @@ class MappingServiceIntegrationTest {
 
     @Test
     @Order(4)
-    void prometheusScraper_metricAbsent_minorAlarm() throws Exception {
+    void prometheusScraper_metricAbsent_invalidAlarm() throws Exception {
         healthStatus.set(200);
         prometheusBody.set("other_metric 1.0\n");   // no jvm_memory_used_bytes
         healthBody.set("{\"status\":\"UP\"}");
 
         Thread.sleep(POLL_MS * 3);
 
-        assertEquals(ALARM_MINOR, readAlarmSeverity("TEST:heap"));
+        assertEquals(ALARM_INVALID, readAlarmSeverity("TEST:heap"));
     }
 
     @Test
     @Order(5)
-    void httpStatus_service503_majorAlarm() throws Exception {
+    void httpStatus_service503_invalidAlarm() throws Exception {
         healthStatus.set(503);
         prometheusBody.set(prometheusBody(1.0));
         healthBody.set("{\"status\":\"DOWN\"}");
 
         Thread.sleep(POLL_MS * 3);
 
-        assertEquals(ALARM_MAJOR, readAlarmSeverity("TEST:up"));
+        assertEquals(ALARM_INVALID, readAlarmSeverity("TEST:up"));
     }
 
     @Test

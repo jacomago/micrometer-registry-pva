@@ -103,41 +103,33 @@ class JsonScraperTest {
     }
 
     @Test
-    void missingPath_returnsUnavailableMinor() {
+    void missingPath_returnsUnavailable() {
         server.enqueue(new MockResponse().setBody("{\"other\": 1}"));
         var scraper = new JsonScraper("status", null, httpClient, objectMapper);
         ScraperResult result = scraper.scrape(server.url("/health").toString());
         assertInstanceOf(ScraperResult.Unavailable.class, result);
-        assertEquals(ScraperResult.Unavailable.Severity.MINOR,
-                ((ScraperResult.Unavailable) result).severity());
     }
 
     @Test
-    void missingIntermediateKey_returnsUnavailableMinor() {
+    void missingIntermediateKey_returnsUnavailable() {
         server.enqueue(new MockResponse().setBody("{\"a\": {}}"));
         var scraper = new JsonScraper("a.b.c", null, httpClient, objectMapper);
         ScraperResult result = scraper.scrape(server.url("/info").toString());
         assertInstanceOf(ScraperResult.Unavailable.class, result);
-        assertEquals(ScraperResult.Unavailable.Severity.MINOR,
-                ((ScraperResult.Unavailable) result).severity());
     }
 
     @Test
-    void httpError_returnsUnavailableMajor() {
+    void httpError_returnsUnavailable() {
         server.enqueue(new MockResponse().setResponseCode(503));
         var scraper = new JsonScraper("status", null, httpClient, objectMapper);
         ScraperResult result = scraper.scrape(server.url("/health").toString());
         assertInstanceOf(ScraperResult.Unavailable.class, result);
-        assertEquals(ScraperResult.Unavailable.Severity.MAJOR,
-                ((ScraperResult.Unavailable) result).severity());
     }
 
     @Test
-    void unreachableHost_returnsUnavailableMajor() {
+    void unreachableHost_returnsUnavailable() {
         var scraper = new JsonScraper("status", null, httpClient, objectMapper);
         ScraperResult result = scraper.scrape("http://127.0.0.1:1/health");
         assertInstanceOf(ScraperResult.Unavailable.class, result);
-        assertEquals(ScraperResult.Unavailable.Severity.MAJOR,
-                ((ScraperResult.Unavailable) result).severity());
     }
 }

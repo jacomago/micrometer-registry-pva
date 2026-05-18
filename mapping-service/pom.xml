@@ -53,12 +53,15 @@
         </dependency>
 
         <!--
-            Phoebus core-pva: PVAServer / ServerPV used by PvaChannelManager.
+            micrometer-registry-pva: sibling library that publishes Micrometer meters as
+            EPICS PVA NTScalar channels.  Gauges returning NaN are automatically published
+            with INVALID alarm; the mapping service registers one Gauge per configured channel.
+            Transitively provides core-pva and micrometer-core.
         -->
         <dependency>
             <groupId>org.phoebus</groupId>
-            <artifactId>core-pva</artifactId>
-            <version>${core-pva.version}</version>
+            <artifactId>micrometer-registry-pva</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
         </dependency>
 
         <!-- ============================================================

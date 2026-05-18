@@ -60,42 +60,34 @@ class PrometheusScraperTest {
     }
 
     @Test
-    void metricAbsent_returnsUnavailableMinor() {
+    void metricAbsent_returnsUnavailable() {
         server.enqueue(new MockResponse().setBody("other_metric 1.0"));
         var scraper = new PrometheusScraper("missing_metric", null, httpClient);
         ScraperResult result = scraper.scrape(server.url("/prometheus").toString());
         assertInstanceOf(ScraperResult.Unavailable.class, result);
-        assertEquals(ScraperResult.Unavailable.Severity.MINOR,
-                ((ScraperResult.Unavailable) result).severity());
     }
 
     @Test
-    void labelMismatch_returnsUnavailableMinor() {
+    void labelMismatch_returnsUnavailable() {
         server.enqueue(new MockResponse().setBody(SAMPLE_BODY));
         var scraper = new PrometheusScraper("jvm_memory_used_bytes",
                 Map.of("area", "nonexistent"), httpClient);
         ScraperResult result = scraper.scrape(server.url("/prometheus").toString());
         assertInstanceOf(ScraperResult.Unavailable.class, result);
-        assertEquals(ScraperResult.Unavailable.Severity.MINOR,
-                ((ScraperResult.Unavailable) result).severity());
     }
 
     @Test
-    void httpError_returnsUnavailableMajor() {
+    void httpError_returnsUnavailable() {
         server.enqueue(new MockResponse().setResponseCode(500));
         var scraper = new PrometheusScraper("any_metric", null, httpClient);
         ScraperResult result = scraper.scrape(server.url("/prometheus").toString());
         assertInstanceOf(ScraperResult.Unavailable.class, result);
-        assertEquals(ScraperResult.Unavailable.Severity.MAJOR,
-                ((ScraperResult.Unavailable) result).severity());
     }
 
     @Test
-    void unreachableHost_returnsUnavailableMajor() {
+    void unreachableHost_returnsUnavailable() {
         var scraper = new PrometheusScraper("any_metric", null, httpClient);
         ScraperResult result = scraper.scrape("http://127.0.0.1:1/prometheus");
         assertInstanceOf(ScraperResult.Unavailable.class, result);
-        assertEquals(ScraperResult.Unavailable.Severity.MAJOR,
-                ((ScraperResult.Unavailable) result).severity());
     }
 }

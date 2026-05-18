@@ -20,9 +20,9 @@ import java.util.Map;
  *   <li>String node without a matching {@code valueMap} entry → {@link Double#NaN}
  * </ul>
  *
- * <p>Returns {@link ScraperResult.Unavailable} with
- * {@link ScraperResult.Unavailable.Severity#MINOR MINOR} when the path is absent,
- * or {@link ScraperResult.Unavailable.Severity#MAJOR MAJOR} on HTTP / network errors.
+ * <p>Returns {@link ScraperResult.Unavailable} when the path is absent or on any HTTP /
+ * network error; the caller sets the backing gauge to NaN which the registry publishes as
+ * an {@code INVALID} alarm.
  */
 public class JsonScraper implements Scraper {
 
@@ -51,20 +51,17 @@ public class JsonScraper implements Scraper {
             HttpResponse<String> response =
                     httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                return new ScraperResult.Unavailable("HTTP " + response.statusCode(),
-                        ScraperResult.Unavailable.Severity.MAJOR);
+                return new ScraperResult.Unavailable("HTTP " + response.statusCode());
             }
             JsonNode root = objectMapper.readTree(response.body());
             JsonNode node = navigatePath(root, jsonPath);
             if (node.isMissingNode() || node.isNull()) {
-                return new ScraperResult.Unavailable(
-                        "Path not found: " + jsonPath,
-                        ScraperResult.Unavailable.Severity.MINOR);
+                return new ScraperResult.Unavailable("Path not found: " + jsonPath);
             }
             return new ScraperResult.Value(coerce(node));
         } catch (Exception e) {
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            return new ScraperResult.Unavailable(msg, ScraperResult.Unavailable.Severity.MAJOR);
+            return new ScraperResult.Unavailable(msg);
         }
     }
 
